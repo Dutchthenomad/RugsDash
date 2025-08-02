@@ -6,6 +6,7 @@ import { LiveGameData } from '../components/LiveGameData';
 import { PredictionEngine } from '../components/PredictionEngine';
 import { PredictionZones } from '../components/PredictionZones';
 import { PerformanceAnalytics } from '../components/PerformanceAnalytics';
+import { HistoricalInsights } from '../components/HistoricalInsights';
 import { SessionStatsModal } from '../components/SessionStatsModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +19,9 @@ import {
   AnalyticsData,
   MarketData,
   StrategyData,
-  RecentPrediction
+  RecentPrediction,
+  HistoricalInsights as HistoricalInsightsType,
+  BankrollStrategy
 } from '../types/gameState';
 
 export default function Dashboard() {
@@ -87,6 +90,22 @@ export default function Dashboard() {
   });
   
   const [recentPredictions, setRecentPredictions] = useState<RecentPrediction[]>([]);
+  const [historicalInsights, setHistoricalInsights] = useState<HistoricalInsightsType>({
+    totalGamesAnalyzed: 0,
+    avgGameLength: 0,
+    avgPeakMultiplier: 0,
+    shortGameRate: 0,
+    longGameRate: 0,
+    modelConfidence: 0,
+    optimalBetTiming: []
+  });
+  const [bankrollStrategy, setBankrollStrategy] = useState<BankrollStrategy>({
+    recommendedBankroll: 0.5,
+    maxConsecutiveLosses: 8,
+    expectedWinStreak: 3,
+    profitProbability: 0.85,
+    breakEvenPoint: 25
+  });
   const [isSessionStatsOpen, setIsSessionStatsOpen] = useState(false);
 
   // Initialize WebSocket connections
@@ -122,8 +141,9 @@ export default function Dashboard() {
     // Update strategy based on current prediction
     updateStrategy(currentPrediction);
     
-    // Update analytics
+    // Update analytics and historical insights
     updateAnalytics();
+    updateHistoricalInsights();
   };
 
   const updateStrategy = (currentPrediction: PredictionData) => {
@@ -154,6 +174,25 @@ export default function Dashboard() {
       recent10: `${Math.floor(accuracy * 10)}/10` // Simplified
     }));
   };
+  
+  const updateHistoricalInsights = () => {
+    const insights = predictionEngine.getHistoricalInsights();
+    setHistoricalInsights(insights);
+    
+    // Update bankroll strategy based on insights
+    if (insights.totalGamesAnalyzed > 10) {
+      const confidence = insights.modelConfidence;
+      const avgLength = insights.avgGameLength;
+      
+      setBankrollStrategy({
+        recommendedBankroll: Math.max(0.1, confidence * 0.8),
+        maxConsecutiveLosses: Math.max(5, Math.floor(avgLength / 50)),
+        expectedWinStreak: Math.max(2, Math.floor(insights.optimalBetTiming.length * 1.5)),
+        profitProbability: Math.min(0.95, 0.7 + (confidence * 0.25)),
+        breakEvenPoint: Math.max(10, Math.floor(50 - (confidence * 30)))
+      });
+    }
+  };
 
   const handleReconnect = () => {
     wsClient.reconnect();
@@ -167,7 +206,7 @@ export default function Dashboard() {
           <div className="flex items-center space-x-4">
             <h1 className="text-2xl font-bold text-crypto-green flex items-center">
               <BarChart3 className="h-8 w-8 mr-2" />
-              Rugs.fun Prediction Dashboard
+              Rugs.fun Deep Analytics Engine
             </h1>
             <ConnectionStatus 
               status={connectionStatus} 
@@ -192,7 +231,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main Dashboard Grid */}
-      <div className="p-6 grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* Live Game Data - Left Section */}
         <div className="lg:col-span-2 space-y-6">
@@ -205,14 +244,22 @@ export default function Dashboard() {
           <PredictionZones prediction={prediction} strategy={strategy} />
         </div>
 
-        {/* Performance Analytics - Right Section */}
+        {/* Historical Intelligence - Right Section */}
         <div>
-          <PerformanceAnalytics 
-            analytics={analytics}
-            market={market}
-            recentPredictions={recentPredictions}
+          <HistoricalInsights 
+            insights={historicalInsights}
+            bankrollStrategy={bankrollStrategy}
           />
         </div>
+      </div>
+      
+      {/* Performance Analytics - Bottom Section */}
+      <div className="px-6 pb-6">
+        <PerformanceAnalytics 
+          analytics={analytics}
+          market={market}
+          recentPredictions={recentPredictions}
+        />
       </div>
 
       {/* Session Stats Modal */}

@@ -4,6 +4,10 @@ export class AdaptivePredictionEngine {
   private tickHistory: Array<{ tick: number; price: number; timestamp: number; interval: number }> = [];
   private rugProbabilities: number[] = [];
   private predictionResults: Array<{ predicted: number; actual: boolean; correct: boolean }> = [];
+  private gameHistory: Array<{ gameId: string; finalTick: number; peakPrice: number; duration: number }> = [];
+  private currentGameId: string | null = null;
+  private gameStartTime: number = 0;
+  private currentGamePeakPrice: number = 1.0;
   
   // Empirical constants from the side bet mechanics document
   private readonly EMPIRICAL_BASELINE = {
@@ -22,6 +26,18 @@ export class AdaptivePredictionEngine {
     const timestamp = Date.now();
     const interval = this.lastTimestamp ? timestamp - this.lastTimestamp : this.EMPIRICAL_BASELINE.mean;
     
+    // Track game state changes
+    if (gameState.gameId && gameState.gameId !== this.currentGameId) {
+      // New game started
+      if (this.currentGameId && this.tickHistory.length > 0) {
+        this.finalizeGame();
+      }
+      this.startNewGame(gameState.gameId);
+    }
+    
+    // Update peak price for current game
+    this.currentGamePeakPrice = Math.max(this.currentGamePeakPrice, gameState.price);
+    
     this.tickHistory.push({
       tick: gameState.tickCount,
       price: gameState.price,
@@ -36,8 +52,8 @@ export class AdaptivePredictionEngine {
       this.tickHistory.shift();
     }
     
-    // Calculate and store new probability
-    const probability = this.calculateAdaptiveProbability(gameState.tickCount);
+    // Calculate and store new probability using historical data
+    const probability = this.calculateHistoricalProbability(gameState.tickCount);
     this.rugProbabilities.push(probability);
     
     // Maintain rolling window of probabilities
@@ -45,8 +61,68 @@ export class AdaptivePredictionEngine {
       this.rugProbabilities.shift();
     }
   }
+  
+  private startNewGame(gameId: string): void {
+    this.currentGameId = gameId;
+    this.gameStartTime = Date.now();
+    this.currentGamePeakPrice = 1.0;
+    this.tickHistory = []; // Reset for new game
+  }
+  
+  private finalizeGame(): void {
+    if (this.tickHistory.length > 0) {
+      const lastTick = this.tickHistory[this.tickHistory.length - 1];
+      this.gameHistory.push({
+        gameId: this.currentGameId!,
+        finalTick: lastTick.tick,
+        peakPrice: this.currentGamePeakPrice,
+        duration: Date.now() - this.gameStartTime
+      });
+      
+      // Maintain rolling window of 500 games
+      if (this.gameHistory.length > 500) {
+        this.gameHistory.shift();
+      }
+    }
+  }
 
-  calculateAdaptiveProbability(tickCount: number): number {
+  calculateHistoricalProbability(tickCount: number): number {
+    // Use historical game data if available
+    if (this.gameHistory.length >= 20) {
+      return this.calculateDataDrivenProbability(tickCount);
+    }
+    
+    // Fall back to empirical baseline for new systems
+    return this.calculateAdaptiveProbability(tickCount);
+  }
+  
+  private calculateDataDrivenProbability(tickCount: number): number {
+    // Analyze historical games to predict rug probability
+    const relevantGames = this.gameHistory.filter(game => 
+      game.finalTick >= tickCount && game.finalTick <= tickCount + 50
+    );
+    
+    if (relevantGames.length < 5) {
+      // Not enough data, fall back to baseline
+      return this.calculateAdaptiveProbability(tickCount);
+    }
+    
+    // Calculate probability based on historical outcomes
+    const totalGames = this.gameHistory.length;
+    const gamesEndingInWindow = this.gameHistory.filter(game => 
+      game.finalTick >= tickCount && game.finalTick <= tickCount + 40
+    ).length;
+    
+    const baseProbability = gamesEndingInWindow / totalGames;
+    
+    // Apply confidence weighting based on sample size
+    const confidence = Math.min(totalGames / 100, 1);
+    const empiricalFallback = this.calculateAdaptiveProbability(tickCount);
+    
+    return (baseProbability * confidence) + (empiricalFallback * (1 - confidence));
+  }
+  
+  private calculateAdaptiveProbability(tickCount: number): number {
     // Base probability curve from empirical data analysis
     const baseProbabilities: Record<number, number> = {
       0: 0.15, 50: 0.32, 100: 0.50, 150: 0.58, 200: 0.74,
@@ -248,5 +324,60 @@ export class AdaptivePredictionEngine {
     }, 0);
     
     return sum / this.predictionResults.length;
+  }
+  
+  getHistoricalInsights(): {
+    totalGamesAnalyzed: number;
+    avgGameLength: number;
+    avgPeakMultiplier: number;
+    shortGameRate: number;
+    longGameRate: number;
+    modelConfidence: number;
+    optimalBetTiming: { tick: number; probability: number; expectedValue: number }[];
+  } {
+    if (this.gameHistory.length === 0) {
+      return {
+        totalGamesAnalyzed: 0,
+        avgGameLength: 0,
+        avgPeakMultiplier: 0,
+        shortGameRate: 0,
+        longGameRate: 0,
+        modelConfidence: 0,
+        optimalBetTiming: []
+      };
+    }
+    
+    const totalGames = this.gameHistory.length;
+    const avgGameLength = this.gameHistory.reduce((sum, g) => sum + g.finalTick, 0) / totalGames;
+    const avgPeakMultiplier = this.gameHistory.reduce((sum, g) => sum + g.peakPrice, 0) / totalGames;
+    
+    const shortGames = this.gameHistory.filter(g => g.finalTick < 200).length;
+    const longGames = this.gameHistory.filter(g => g.finalTick > 400).length;
+    
+    const shortGameRate = shortGames / totalGames;
+    const longGameRate = longGames / totalGames;
+    
+    const modelConfidence = Math.min(totalGames / 100, 1);
+    
+    // Calculate optimal betting windows
+    const optimalBetTiming = [];
+    for (let tick = 50; tick <= 500; tick += 50) {
+      const probability = this.calculateHistoricalProbability(tick);
+      const expectedValue = (probability * 4) - 1; // 5:1 payout = 4x profit
+      
+      if (expectedValue > 0.5) { // Only include profitable windows
+        optimalBetTiming.push({ tick, probability, expectedValue });
+      }
+    }
+    
+    return {
+      totalGamesAnalyzed: totalGames,
+      avgGameLength,
+      avgPeakMultiplier,
+      shortGameRate,
+      longGameRate,
+      modelConfidence,
+      optimalBetTiming
+    };
   }
 }

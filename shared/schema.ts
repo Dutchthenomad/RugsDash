@@ -20,6 +20,29 @@ export const gameStates = pgTable("game_states", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
+export const gameHistory = pgTable("game_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  gameId: text("game_id").notNull().unique(),
+  finalTick: integer("final_tick").notNull(),
+  peakPrice: real("peak_price").notNull(),
+  finalPrice: real("final_price").notNull(),
+  duration: integer("duration").notNull(), // in milliseconds
+  rugTick: integer("rug_tick").notNull(), // tick when game ended
+  priceHistory: text("price_history").notNull(), // JSON array
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+});
+
+export const marketPatterns = pgTable("market_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tickRange: text("tick_range").notNull(), // e.g., "100-150"
+  avgDuration: real("avg_duration").notNull(),
+  rugProbability: real("rug_probability").notNull(),
+  sampleSize: integer("sample_size").notNull(),
+  confidence: real("confidence").notNull(),
+  lastUpdated: timestamp("last_updated").notNull().defaultNow(),
+});
+
 export const predictions = pgTable("predictions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   gameId: text("game_id").notNull(),
@@ -50,6 +73,15 @@ export const insertGameStateSchema = createInsertSchema(gameStates).omit({
   timestamp: true,
 });
 
+export const insertGameHistorySchema = createInsertSchema(gameHistory).omit({
+  id: true,
+});
+
+export const insertMarketPatternSchema = createInsertSchema(marketPatterns).omit({
+  id: true,
+  lastUpdated: true,
+});
+
 export const insertPredictionSchema = createInsertSchema(predictions).omit({
   id: true,
   timestamp: true,
@@ -64,6 +96,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type GameState = typeof gameStates.$inferSelect;
 export type InsertGameState = z.infer<typeof insertGameStateSchema>;
+export type GameHistory = typeof gameHistory.$inferSelect;
+export type InsertGameHistory = z.infer<typeof insertGameHistorySchema>;
+export type MarketPattern = typeof marketPatterns.$inferSelect;
+export type InsertMarketPattern = z.infer<typeof insertMarketPatternSchema>;
 export type Prediction = typeof predictions.$inferSelect;
 export type InsertPrediction = z.infer<typeof insertPredictionSchema>;
 export type PredictionResult = typeof predictionResults.$inferSelect;

@@ -34,6 +34,28 @@ export interface AnalyticsData {
   totalProfit: number;
 }
 
+export interface HistoricalInsights {
+  totalGamesAnalyzed: number;
+  avgGameLength: number;
+  avgPeakMultiplier: number;
+  shortGameRate: number;
+  longGameRate: number;
+  modelConfidence: number;
+  optimalBetTiming: Array<{
+    tick: number;
+    probability: number;
+    expectedValue: number;
+  }>;
+}
+
+export interface BankrollStrategy {
+  recommendedBankroll: number;
+  maxConsecutiveLosses: number;
+  expectedWinStreak: number;
+  profitProbability: number;
+  breakEvenPoint: number;
+}
+
 export interface MarketData {
   avgLength: number;
   earlyRugRate: number;

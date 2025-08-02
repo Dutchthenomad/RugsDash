@@ -1,8 +1,7 @@
 import { PredictionData, StrategyData } from '../types/gameState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Target, Coins, Rocket } from 'lucide-react';
+import { Target, TrendingUp, AlertTriangle } from 'lucide-react';
 
 interface PredictionZonesProps {
   prediction: PredictionData;
@@ -75,12 +74,12 @@ export function PredictionZones({ prediction, strategy }: PredictionZonesProps) 
         </CardContent>
       </Card>
 
-      {/* Betting Strategy */}
+      {/* Recommended Strategy */}
       <Card className="bg-card-bg border-gray-600">
         <CardHeader>
           <CardTitle className="text-lg font-semibold flex items-center text-crypto-green">
-            <Coins className="h-5 w-5 mr-2" />
-            Smart Strategy
+            <TrendingUp className="h-5 w-5 mr-2" />
+            Statistical Recommendation
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -111,13 +110,21 @@ export function PredictionZones({ prediction, strategy }: PredictionZonesProps) 
             </div>
           </div>
           
-          <Button 
-            className="w-full bg-crypto-green text-dark-bg font-bold hover:bg-green-400 transition-colors"
-            disabled={prediction.zone.name === 'AVOID'}
-          >
-            <Rocket className="h-4 w-4 mr-2" />
-            PLACE BET
-          </Button>
+          <div className="w-full p-4 bg-accent-blue rounded-lg">
+            <div className="flex items-center justify-center mb-2">
+              {prediction.expectedValue > 0.5 ? (
+                <TrendingUp className="h-5 w-5 text-crypto-green mr-2" />
+              ) : (
+                <AlertTriangle className="h-5 w-5 text-alert-red mr-2" />
+              )}
+              <span className="font-semibold text-white">
+                {prediction.expectedValue > 0.5 ? 'FAVORABLE WINDOW' : 'WAIT FOR BETTER ODDS'}
+              </span>
+            </div>
+            <div className="text-center text-sm text-gray-200">
+              Statistical confidence based on historical analysis
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
