@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(226, 22%, 8%);
+  --foreground: hsl(0, 0%, 100%);
+  --muted: hsl(226, 14%, 15%);
+  --muted-foreground: hsl(0, 0%, 64.9%);
+  --popover: hsl(226, 22%, 14%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --card: hsl(227, 21%, 15%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --border: hsl(227, 15%, 20%);
+  --input: hsl(227, 15%, 20%);
+  --primary: hsl(168, 100%, 42%);
+  --primary-foreground: hsl(226, 22%, 8%);
+  --secondary: hsl(227, 21%, 15%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --accent: hsl(227, 21%, 15%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(350, 89%, 60%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(168, 100%, 42%);
+  --radius: 0.5rem;
+  
+  /* Custom colors for crypto theme */
+  --crypto-green: hsl(168, 100%, 42%);
+  --alert-red: hsl(350, 89%, 60%);
+  --dark-bg: hsl(226, 22%, 8%);
+  --card-bg: hsl(227, 21%, 15%);
+  --accent-blue: hsl(235, 86%, 65%);
+}
+
+.dark {
+  --background: hsl(226, 22%, 8%);
+  --foreground: hsl(0, 0%, 100%);
+  --muted: hsl(226, 14%, 15%);
+  --muted-foreground: hsl(0, 0%, 64.9%);
+  --popover: hsl(226, 22%, 14%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --card: hsl(227, 21%, 15%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --border: hsl(227, 15%, 20%);
+  --input: hsl(227, 15%, 20%);
+  --primary: hsl(168, 100%, 42%);
+  --primary-foreground: hsl(226, 22%, 8%);
+  --secondary: hsl(227, 21%, 15%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --accent: hsl(227, 21%, 15%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(350, 89%, 60%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(168, 100%, 42%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-dark-bg text-foreground font-sans antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  }
+}
+
+@layer components {
+  .font-mono {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Droid Sans Mono', 'Consolas', monospace;
+  }
+  
+  .crypto-green {
+    color: var(--crypto-green);
+  }
+  
+  .alert-red {
+    color: var(--alert-red);
+  }
+  
+  .accent-blue {
+    color: var(--accent-blue);
+  }
+  
+  .bg-crypto-green {
+    background-color: var(--crypto-green);
+  }
+  
+  .bg-alert-red {
+    background-color: var(--alert-red);
+  }
+  
+  .bg-dark-bg {
+    background-color: var(--dark-bg);
+  }
+  
+  .bg-card-bg {
+    background-color: var(--card-bg);
+  }
+  
+  .bg-accent-blue {
+    background-color: var(--accent-blue);
+  }
+  
+  .border-crypto-green {
+    border-color: var(--crypto-green);
+  }
+  
+  .border-alert-red {
+    border-color: var(--alert-red);
+  }
+  
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+  
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 5px var(--crypto-green), 0 0 10px var(--crypto-green), 0 0 15px var(--crypto-green);
+    }
+    to {
+      box-shadow: 0 0 10px var(--crypto-green), 0 0 20px var(--crypto-green), 0 0 30px var(--crypto-green);
+    }
+  }
+}
+
+@layer utilities {
+  .text-crypto-green {
+    color: var(--crypto-green);
+  }
+  
+  .text-alert-red {
+    color: var(--alert-red);
+  }
+  
+  .text-accent-blue {
+    color: var(--accent-blue);
+  }
+}
