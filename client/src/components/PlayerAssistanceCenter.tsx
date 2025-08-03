@@ -86,6 +86,7 @@ export function PlayerAssistanceCenter({
   // Multi-bet tracking for current game
   const [currentGameBets, setCurrentGameBets] = useState<PaperTrade[]>([]);
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
+  const [lastProcessedGameId, setLastProcessedGameId] = useState<string | null>(null);
 
   // Current side bet opportunity state
   const [currentOpportunity, setCurrentOpportunity] = useState<{
@@ -101,19 +102,21 @@ export function PlayerAssistanceCenter({
     betAmount: number;
   } | null>(null);
 
-  // Q-Learning state
+  // Q-Learning state with throttling
   const [qLearning, setQLearning] = useState<{
     recommendation: QLearningRecommendation | null;
     stats: QLearningStats | null;
     analytics: any;
     isEnabled: boolean;
     lastUpdate: Date | null;
+    lastRecommendationCall: number;
   }>({
     recommendation: null,
     stats: null,
     analytics: null,
     isEnabled: true,
-    lastUpdate: null
+    lastUpdate: null,
+    lastRecommendationCall: 0
   });
 
   // Dev menu state
@@ -141,12 +144,16 @@ export function PlayerAssistanceCenter({
     };
   };
 
-  // Get Q-Learning recommendation
+  // Get Q-Learning recommendation with throttling
   const getQLearningRecommendation = async () => {
     // Only operate with real WebSocket data - no simulated data allowed
     if (!qLearning.isEnabled || !gameState.active || 
         connectionStatus.status !== 'CONNECTED' || 
         !gameState.gameId || !gameState.timestamp) return;
+    
+    // Throttle recommendation calls to prevent overload (max 1 per second)
+    const now = Date.now();
+    if (now - qLearning.lastRecommendationCall < 1000) return;
 
     try {
       const response = await apiRequest('/api/qlearning/recommendation', {
@@ -161,7 +168,8 @@ export function PlayerAssistanceCenter({
       setQLearning(prev => ({
         ...prev,
         recommendation: response,
-        lastUpdate: new Date()
+        lastUpdate: new Date(),
+        lastRecommendationCall: now
       }));
     } catch (error) {
       console.warn('Failed to get Q-learning recommendation:', error);
@@ -378,27 +386,41 @@ export function PlayerAssistanceCenter({
   useEffect(() => {
     // Only start Q-learning episodes with real WebSocket data
     if (gameState.gameId && gameState.gameId !== currentGameId && 
+        gameState.gameId !== lastProcessedGameId &&
         connectionStatus.status === 'CONNECTED' && 
         gameState.timestamp) {
-      // Start new Q-learning episode
-      apiRequest('/api/qlearning/start-game', {
-        method: 'POST',
-        body: { gameId: gameState.gameId }
-      }).catch(console.warn);
-      setCurrentGameId(gameState.gameId);
+      
+      // Debounce to prevent duplicate starts
+      const startGameTimeout = setTimeout(() => {
+        apiRequest('/api/qlearning/start-game', {
+          method: 'POST',
+          body: { gameId: gameState.gameId }
+        }).then(() => {
+          setCurrentGameId(gameState.gameId);
+          setLastProcessedGameId(gameState.gameId);
+        }).catch(console.warn);
+      }, 200);
+      
+      return () => clearTimeout(startGameTimeout);
     }
-  }, [gameState.gameId, currentGameId, connectionStatus.status]);
+  }, [gameState.gameId, currentGameId, lastProcessedGameId, connectionStatus.status]);
 
-  // Record tick updates for Q-learning - only with real WebSocket data
+  // Record tick updates for Q-learning - throttled to prevent overload
   useEffect(() => {
     // Only operate with real WebSocket data - no simulated data allowed
     if (gameState.active && gameState.tickCount && 
         connectionStatus.status === 'CONNECTED' && 
         gameState.gameId && gameState.timestamp) {
-      apiRequest('/api/qlearning/record-tick', {
-        method: 'POST',
-        body: { tick: gameState.tickCount, timestamp: Date.now() }
-      }).catch(console.warn);
+      
+      // Throttle tick recording to every 500ms to prevent API overload
+      const throttledRecordTick = setTimeout(() => {
+        apiRequest('/api/qlearning/record-tick', {
+          method: 'POST',
+          body: { tick: gameState.tickCount, timestamp: Date.now() }
+        }).catch(console.warn);
+      }, 500);
+      
+      return () => clearTimeout(throttledRecordTick);
     }
   }, [gameState.tickCount, connectionStatus.status]);
 
@@ -406,11 +428,18 @@ export function PlayerAssistanceCenter({
   useEffect(() => {
     if (!gameState.active && currentGameId && 
         connectionStatus.status === 'CONNECTED') {
-      apiRequest('/api/qlearning/end-game', {
-        method: 'POST',
-        body: { gameId: currentGameId, finalTick: gameState.tickCount || 0 }
-      }).catch(console.warn);
-      setCurrentGameId(null);
+      
+      // Debounce to prevent duplicate ends
+      const endGameTimeout = setTimeout(() => {
+        apiRequest('/api/qlearning/end-game', {
+          method: 'POST',
+          body: { gameId: currentGameId, finalTick: gameState.tickCount || 0 }
+        }).then(() => {
+          setCurrentGameId(null);
+        }).catch(console.warn);
+      }, 200);
+      
+      return () => clearTimeout(endGameTimeout);
     }
   }, [gameState.active, currentGameId, gameState.tickCount, connectionStatus.status]);
 
