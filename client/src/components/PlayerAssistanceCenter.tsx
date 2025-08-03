@@ -11,6 +11,35 @@ import {
   VolatilitySignal,
   TreasuryRiskLevel
 } from '../types/gameState';
+import { apiRequest } from '@/lib/queryClient';
+
+interface QLearningRecommendation {
+  action: 'BET_SMALL' | 'BET_MEDIUM' | 'BET_LARGE' | 'HOLD';
+  confidence: number;
+  expectedValue: number;
+  qValue: number;
+  reasoning: string;
+  betAmount?: number;
+  isLearning: boolean;
+}
+
+interface QLearningStats {
+  isTraining: boolean;
+  stats: {
+    episodeNumber: number;
+    explorationRate: number;
+    recentWinRate: number;
+    totalStates: number;
+    totalQValues: number;
+  };
+  activeBets: number;
+  recentPerformance: {
+    winRate: number;
+    totalProfit: number;
+    totalBets: number;
+    avgProfit: number;
+  };
+}
 
 interface PlayerAssistanceCenterProps {
   prediction: PredictionData;
@@ -69,6 +98,19 @@ export function PlayerAssistanceCenter({
     betAmount: number;
   } | null>(null);
 
+  // Q-Learning state
+  const [qLearning, setQLearning] = useState<{
+    recommendation: QLearningRecommendation | null;
+    stats: QLearningStats | null;
+    isEnabled: boolean;
+    lastUpdate: Date | null;
+  }>({
+    recommendation: null,
+    stats: null,
+    isEnabled: true,
+    lastUpdate: null
+  });
+
   // Clear game bets when new game starts
   useEffect(() => {
     if (gameState.gameId && gameState.gameId !== currentGameId) {
@@ -91,7 +133,31 @@ export function PlayerAssistanceCenter({
     };
   };
 
-  // Enhanced opportunity evaluation
+  // Get Q-Learning recommendation
+  const getQLearningRecommendation = async () => {
+    if (!qLearning.isEnabled || !gameState.active) return;
+
+    try {
+      const response = await apiRequest('/api/qlearning/recommendation', {
+        method: 'POST',
+        body: {
+          gameState,
+          timing,
+          bankroll: bot.bankroll
+        }
+      });
+      
+      setQLearning(prev => ({
+        ...prev,
+        recommendation: response,
+        lastUpdate: new Date()
+      }));
+    } catch (error) {
+      console.warn('Failed to get Q-learning recommendation:', error);
+    }
+  };
+
+  // Enhanced opportunity evaluation with Q-Learning fusion
   const evaluateCurrentOpportunity = () => {
     if (!gameState.active || gameState.tickCount < 1) {
       setCurrentOpportunity(null);
@@ -103,44 +169,60 @@ export function PlayerAssistanceCenter({
     const endTick = currentTick + 40;
 
     // Use base prediction probability
-    const enhancedProbability = prediction.rugProbability;
-    
-    // Expected value calculation (5:1 payout)
-    const expectedValue = (enhancedProbability * 4) - 1;
+    let enhancedProbability = prediction.rugProbability;
+    let enhancedExpectedValue = (enhancedProbability * 4) - 1;
+    let enhancedBetAmount = 0;
+    let enhancedReason = '';
+
+    // Fuse with Q-Learning recommendation if available
+    if (qLearning.recommendation && qLearning.isEnabled) {
+      const qRec = qLearning.recommendation;
+      
+      // Weight Q-learning by confidence and learning state
+      const qWeight = qRec.isLearning ? qRec.confidence * 0.7 : qRec.confidence * 0.4;
+      const predWeight = 1 - qWeight;
+      
+      // Blend probabilities and expected values
+      if (qRec.action !== 'HOLD') {
+        enhancedProbability = (enhancedProbability * predWeight) + (qRec.confidence * qWeight);
+        enhancedExpectedValue = (enhancedExpectedValue * predWeight) + (qRec.expectedValue * qWeight);
+        enhancedBetAmount = qRec.betAmount || 0;
+        enhancedReason = `🤖 AI Enhanced: ${qRec.reasoning} (Q: ${qRec.qValue.toFixed(3)})`;
+      }
+    }
     
     // Determine recommendation
     let recommendation: 'STRONG_BUY' | 'BUY' | 'AVOID' | 'STRONG_AVOID' = 'AVOID';
-    let reason = '';
+    let reason = enhancedReason || `Traditional analysis (${Math.round(enhancedProbability * 100)}% chance)`;
     let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME' = 'MEDIUM';
     
-    if (enhancedProbability > 0.75 && expectedValue > 0.5) {
+    if (enhancedProbability > 0.75 && enhancedExpectedValue > 0.5) {
       recommendation = 'STRONG_BUY';
-      reason = `High probability + excellent value (${Math.round(enhancedProbability * 100)}% chance)`;
       riskLevel = 'LOW';
-    } else if (enhancedProbability > 0.55 && expectedValue > 0.15) {
+    } else if (enhancedProbability > 0.55 && enhancedExpectedValue > 0.15) {
       recommendation = 'BUY';
-      reason = `Positive expected value (${Math.round(enhancedProbability * 100)}% chance)`;
       riskLevel = enhancedProbability > 0.65 ? 'LOW' : 'MEDIUM';
     } else if (enhancedProbability < 0.35) {
       recommendation = 'STRONG_AVOID';
-      reason = `Low rug probability (${Math.round(enhancedProbability * 100)}% chance)`;
       riskLevel = 'HIGH';
     } else {
       recommendation = 'AVOID';
-      reason = `Insufficient edge (${Math.round(enhancedProbability * 100)}% chance)`;
       riskLevel = 'MEDIUM';
     }
 
-    // Kelly criterion bet sizing
-    const kellyFraction = (enhancedProbability * 5 - 1) / 4;
-    const safeBetAmount = Math.max(0.001, Math.min(0.1, kellyFraction * bot.bankroll * 0.25));
+    // Use Q-learning bet amount if available, otherwise Kelly criterion
+    let safeBetAmount = enhancedBetAmount;
+    if (!safeBetAmount) {
+      const kellyFraction = (enhancedProbability * 5 - 1) / 4;
+      safeBetAmount = Math.max(0.001, Math.min(0.1, kellyFraction * bot.bankroll * 0.25));
+    }
 
     setCurrentOpportunity({
       available: true,
       startTick,
       endTick,
       rugProbability: enhancedProbability,
-      expectedValue,
+      expectedValue: enhancedExpectedValue,
       confidence: enhancedProbability,
       recommendation,
       reason,
@@ -278,10 +360,64 @@ export function PlayerAssistanceCenter({
     }
   }, [gameState.tickCount, gameState.active, currentGameBets.length]);
 
+  // Initialize Q-learning game tracking
+  useEffect(() => {
+    if (gameState.gameId && gameState.gameId !== currentGameId) {
+      // Start new Q-learning episode
+      apiRequest('/api/qlearning/start-game', {
+        method: 'POST',
+        body: { gameId: gameState.gameId }
+      }).catch(console.warn);
+    }
+  }, [gameState.gameId, currentGameId]);
+
+  // Record tick updates for Q-learning
+  useEffect(() => {
+    if (gameState.active && gameState.tickCount) {
+      apiRequest('/api/qlearning/record-tick', {
+        method: 'POST',
+        body: { tick: gameState.tickCount, timestamp: Date.now() }
+      }).catch(console.warn);
+    }
+  }, [gameState.tickCount]);
+
+  // End Q-learning episode when game ends
+  useEffect(() => {
+    if (!gameState.active && currentGameId) {
+      apiRequest('/api/qlearning/end-game', {
+        method: 'POST',
+        body: { gameId: currentGameId, finalTick: gameState.tickCount || 0 }
+      }).catch(console.warn);
+    }
+  }, [gameState.active, currentGameId, gameState.tickCount]);
+
+  // Load Q-learning stats periodically
+  useEffect(() => {
+    const loadQLearningStats = async () => {
+      try {
+        const stats = await apiRequest('/api/qlearning/stats');
+        setQLearning(prev => ({ ...prev, stats }));
+      } catch (error) {
+        console.warn('Failed to load Q-learning stats:', error);
+      }
+    };
+
+    loadQLearningStats();
+    const interval = setInterval(loadQLearningStats, 30000); // Every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update Q-learning recommendation when game state changes
+  useEffect(() => {
+    if (gameState.active) {
+      getQLearningRecommendation();
+    }
+  }, [gameState.tickCount, gameState.active, qLearning.isEnabled]);
+
   // Update opportunities when game state changes
   useEffect(() => {
     evaluateCurrentOpportunity();
-  }, [gameState.tickCount, gameState.price, gameState.active, timing.reliability]);
+  }, [gameState.tickCount, gameState.price, gameState.active, timing.reliability, qLearning.recommendation]);
 
   // Update bot decisions when opportunities change
   useEffect(() => {
@@ -337,7 +473,7 @@ export function PlayerAssistanceCenter({
             </div>
           </div>
           
-          {/* Silent Bot Status */}
+          {/* Silent Bot Status with Q-Learning Indicator */}
           <div className="flex items-center space-x-3">
             <div className={`w-4 h-4 rounded-full ${
               bot.settings.enabled ? 'bg-crypto-green animate-pulse' : 'bg-gray-500'
@@ -345,6 +481,12 @@ export function PlayerAssistanceCenter({
             <span className="text-lg font-bold text-white">
               {bot.settings.enabled ? '🤖 BOT ACTIVE' : '😴 BOT OFF'}
             </span>
+            {qLearning.isEnabled && qLearning.stats?.isTraining && (
+              <div className="flex items-center space-x-1">
+                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+                <span className="text-sm text-blue-400 font-bold">AI LEARNING</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -362,6 +504,9 @@ export function PlayerAssistanceCenter({
              currentOpportunity?.recommendation === 'BUY' ? '✅ BUY' :
              currentOpportunity?.recommendation === 'AVOID' ? '⚠️ AVOID' :
              '🛑 STRONG AVOID'}
+            {qLearning.recommendation && qLearning.isEnabled && (
+              <span className="text-2xl ml-4">🤖</span>
+            )}
           </div>
           
           {currentOpportunity && (
