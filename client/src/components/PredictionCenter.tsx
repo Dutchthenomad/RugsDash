@@ -122,6 +122,8 @@ export function PredictionCenter({
     reason: string;
     timestamp: number;
   } | null>(null);
+  const [lastTradeGameId, setLastTradeGameId] = useState<string | null>(null);
+  const [tradeCooldown, setTradeCooldown] = useState<boolean>(false);
 
   const getZoneColor = () => {
     switch (prediction.zone.name) {
@@ -146,74 +148,102 @@ export function PredictionCenter({
     return <Play className="h-4 w-4" />;
   };
 
-  // Bot decision making logic (throttled to prevent seizure effects)
+  // Bot decision making logic with strict safeguards
   useEffect(() => {
-    // Throttle bot decisions to prevent rapid firing
-    const timeoutId = setTimeout(() => {
-      if (!bot.settings.enabled || !gameState.active) {
-        return;
-      }
+    if (!bot.settings.enabled || !gameState.active || tradeCooldown) {
+      return;
+    }
 
-      const shouldEnterTrade = !bot.currentTrade && 
-        prediction.confidence >= bot.settings.minConfidence &&
-        prediction.expectedValue >= bot.settings.minExpectedValue &&
-        prediction.zone.name !== 'AVOID';
+    const currentGameId = gameState.gameId || `game_${Math.floor(Date.now() / 10000)}`;
+    
+    // Prevent multiple trades in the same game
+    if (lastTradeGameId === currentGameId) {
+      return;
+    }
 
-      const shouldExitTrade = bot.currentTrade && (
-        prediction.rugProbability >= bot.settings.autoExitThreshold ||
-        prediction.zone.name === 'AVOID'
+    // Only allow one trade per game, and only early in the game
+    if (gameState.tickCount > 50 || bot.currentTrade) {
+      return;
+    }
+
+    const shouldEnterTrade = prediction.confidence >= bot.settings.minConfidence &&
+      prediction.expectedValue >= bot.settings.minExpectedValue &&
+      prediction.zone.name !== 'AVOID' &&
+      gameState.tickCount >= 10; // Wait at least 10 ticks
+
+    if (shouldEnterTrade) {
+      // Set cooldown immediately to prevent rapid firing
+      setTradeCooldown(true);
+      setLastTradeGameId(currentGameId);
+      
+      const betAmount = Math.min(
+        bot.settings.maxBetSize,
+        calculateOptimalBetSize(prediction.expectedValue, prediction.confidence)
       );
 
-      if (shouldEnterTrade) {
-        const betAmount = Math.min(
-          bot.settings.maxBetSize,
-          calculateOptimalBetSize(prediction.expectedValue, prediction.confidence)
-        );
+      const newTrade: PaperTrade = {
+        id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        gameId: currentGameId,
+        betTick: gameState.tickCount,
+        exitTick: 0,
+        betAmount,
+        probability: prediction.rugProbability,
+        expectedValue: prediction.expectedValue,
+        actualOutcome: 'PENDING',
+        profit: 0,
+        confidence: prediction.confidence,
+        zone: prediction.zone.name,
+        timestamp: new Date()
+      };
 
-        const newTrade: PaperTrade = {
-          id: `trade_${Date.now()}`,
-          gameId: gameState.gameId || `game_${Date.now()}`,
-          betTick: gameState.tickCount,
-          exitTick: 0,
-          betAmount,
-          probability: prediction.rugProbability,
-          expectedValue: prediction.expectedValue,
-          actualOutcome: 'PENDING',
-          profit: 0,
-          confidence: prediction.confidence,
-          zone: prediction.zone.name,
-          timestamp: new Date()
-        };
+      setBot(prev => ({
+        ...prev,
+        currentTrade: newTrade
+      }));
 
-        setBot(prev => ({
-          ...prev,
-          currentTrade: newTrade
-        }));
+      setLastDecision({
+        action: 'BET',
+        reason: `EV: ${prediction.expectedValue.toFixed(3)}, Conf: ${(prediction.confidence * 100).toFixed(0)}%`,
+        timestamp: Date.now()
+      });
 
-        setLastDecision({
-          action: 'BET',
-          reason: `EV: ${prediction.expectedValue.toFixed(3)}, Conf: ${(prediction.confidence * 100).toFixed(0)}%`,
-          timestamp: Date.now()
-        });
+      if (onTradeExecuted) {
+        onTradeExecuted(newTrade);
+      }
 
-        if (onTradeExecuted) {
-          onTradeExecuted(newTrade);
-        }
-      } else if (shouldExitTrade && bot.currentTrade) {
-        const exitedTrade = {
-          ...bot.currentTrade,
-          exitTick: gameState.tickCount,
-          actualOutcome: 'LOSS' as const,
-          profit: -bot.currentTrade.betAmount
-        };
+      // Clear cooldown after 2 seconds
+      setTimeout(() => setTradeCooldown(false), 2000);
+    }
+  }, [bot.settings.enabled, gameState.active, gameState.gameId, gameState.tickCount,
+      prediction.confidence, prediction.expectedValue, prediction.zone.name,
+      bot.currentTrade, tradeCooldown, lastTradeGameId]);
 
+  // Handle game end - only run once per game end
+  useEffect(() => {
+    if (!gameState.active && bot.currentTrade) {
+      const currentTrade = bot.currentTrade;
+      
+      // Clear current trade immediately to prevent duplicate processing
+      setBot(prev => ({ ...prev, currentTrade: null }));
+      
+      const isWin = gameState.tickCount > currentTrade.betTick + 20;
+      const profit = isWin ? currentTrade.betAmount * 4 : -currentTrade.betAmount;
+
+      const completedTrade = {
+        ...currentTrade,
+        exitTick: gameState.tickCount,
+        actualOutcome: isWin ? 'WIN' as const : 'LOSS' as const,
+        profit
+      };
+
+      // Update bot stats
+      setTimeout(() => {
         setBot(prev => {
-          const newHistory = [...prev.tradeHistory, exitedTrade];
-          const newTotalProfit = prev.totalProfit - exitedTrade.betAmount;
+          const newHistory = [...prev.tradeHistory, completedTrade];
+          const newTotalProfit = prev.totalProfit + profit;
           const stats = calculateTradeStats(newHistory, newTotalProfit, prev.bankroll);
           return {
             ...prev,
-            currentTrade: null,
             tradeHistory: newHistory,
             totalProfit: newTotalProfit,
             totalTrades: prev.totalTrades + 1,
@@ -224,58 +254,19 @@ export function PredictionCenter({
             roi: stats.roi
           };
         });
-
-        setLastDecision({
-          action: 'EXIT',
-          reason: `Risk too high: ${(prediction.rugProbability * 100).toFixed(0)}%`,
-          timestamp: Date.now()
-        });
-      }
-    }, 500); // 500ms throttle
-
-    return () => clearTimeout(timeoutId);
-  }, [bot.settings.enabled, gameState.active, gameState.tickCount, 
-      prediction.zone.name, prediction.confidence, prediction.expectedValue, 
-      bot.currentTrade?.id]);
-
-  // Handle game end (simplified dependencies)
-  useEffect(() => {
-    if (!gameState.active && bot.currentTrade) {
-      const isWin = gameState.tickCount > bot.currentTrade.betTick + 20;
-      const profit = isWin ? bot.currentTrade.betAmount * 4 : -bot.currentTrade.betAmount;
-
-      const completedTrade = {
-        ...bot.currentTrade,
-        exitTick: gameState.tickCount,
-        actualOutcome: isWin ? 'WIN' as const : 'LOSS' as const,
-        profit
-      };
-
-      setBot(prev => {
-        const newHistory = [...prev.tradeHistory, completedTrade];
-        const newTotalProfit = prev.totalProfit + profit;
-        const stats = calculateTradeStats(newHistory, newTotalProfit, prev.bankroll);
-        return {
-          ...prev,
-          currentTrade: null,
-          tradeHistory: newHistory,
-          totalProfit: newTotalProfit,
-          totalTrades: prev.totalTrades + 1,
-          winRate: stats.winRate,
-          averageProfit: stats.averageProfit,
-          maxDrawdown: stats.maxDrawdown,
-          currentStreak: stats.currentStreak,
-          roi: stats.roi
-        };
-      });
+      }, 100);
 
       setLastDecision({
         action: 'HOLD',
         reason: `Game ended - ${isWin ? 'WIN' : 'LOSS'} (${profit.toFixed(3)} SOL)`,
         timestamp: Date.now()
       });
+      
+      // Reset trade cooldown for next game
+      setTradeCooldown(false);
+      setLastTradeGameId(null);
     }
-  }, [gameState.active]);
+  }, [gameState.active, bot.currentTrade?.id]);
 
   const calculateOptimalBetSize = (expectedValue: number, confidence: number): number => {
     const kelly = expectedValue * confidence * 0.2; // Conservative Kelly sizing
@@ -290,6 +281,10 @@ export function PredictionCenter({
         enabled: !prev.settings.enabled
       }
     }));
+    
+    // Reset state when toggling
+    setTradeCooldown(false);
+    setLastTradeGameId(null);
   };
 
   return (
