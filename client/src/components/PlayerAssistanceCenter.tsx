@@ -55,7 +55,7 @@ export function PlayerAssistanceCenter({
   const [volatilityHistory, setVolatilityHistory] = useState<number[]>([]);
   const [gameHistory, setGameHistory] = useState<any[]>([]);
   
-  // Bot state - now background monitoring
+  // Bot state - now supporting multi-bet per game
   const [bot, setBot] = useState<PaperTradingBotType>({
     settings: {
       enabled: false,
@@ -77,6 +77,10 @@ export function PlayerAssistanceCenter({
     roi: 0
   });
 
+  // Multi-bet tracking for current game
+  const [currentGameBets, setCurrentGameBets] = useState<PaperTrade[]>([]);
+  const [currentGameId, setCurrentGameId] = useState<string | null>(null);
+
   // Reset bot state function
   const resetBotState = () => {
     setBot(prev => ({
@@ -90,6 +94,30 @@ export function PlayerAssistanceCenter({
       maxDrawdown: 0,
       currentStreak: { type: 'WIN', count: 0 }
     }));
+    setCurrentGameBets([]);
+    setCurrentGameId(null);
+  };
+
+  // Clear game bets when new game starts
+  useEffect(() => {
+    if (gameState.gameId && gameState.gameId !== currentGameId) {
+      setCurrentGameBets([]);
+      setCurrentGameId(gameState.gameId);
+    }
+  }, [gameState.gameId, currentGameId]);
+
+  // Calculate current game totals
+  const getCurrentGameTotals = () => {
+    const totalCost = currentGameBets.reduce((sum, bet) => sum + bet.betAmount, 0);
+    const totalPotentialPayout = currentGameBets.reduce((sum, bet) => sum + bet.payout, 0);
+    const activeBets = currentGameBets.filter(bet => bet.actualOutcome === 'PENDING');
+    
+    return {
+      totalCost,
+      totalPotentialPayout,
+      activeBetsCount: activeBets.length,
+      totalBetsCount: currentGameBets.length
+    };
   };
 
   // Current side bet opportunity state
@@ -304,16 +332,28 @@ export function PlayerAssistanceCenter({
     });
   };
 
-  // Enhanced bot decision system - now using sophisticated prediction
+  // Enhanced bot decision system - now supporting multiple bets per game
   const evaluateBotDecision = () => {
     if (!bot.settings.enabled || !currentOpportunity || !gameState.active) return;
     
-    // Don't place new trades if we already have an active trade
-    if (bot.currentTrade) return;
-
     const { recommendation, expectedValue, confidence, betAmount } = currentOpportunity;
+    const { totalCost } = getCurrentGameTotals();
+    
+    // Progressive betting strategy - limit total game exposure
+    const maxGameExposure = bot.settings.maxBetSize * 3; // Allow up to 3x max bet per game
+    if (totalCost >= maxGameExposure) return;
+    
+    // Check if we already have a bet covering this tick range
+    const currentTick = gameState.tickCount;
+    const overlappingBet = currentGameBets.find(bet => 
+      bet.actualOutcome === 'PENDING' && 
+      currentTick >= bet.startTick && 
+      currentTick <= bet.endTick - 10 // Allow new bet if more than 10 ticks from end
+    );
+    
+    if (overlappingBet) return; // Don't double-bet on same window
 
-    // Bot uses same sophisticated analysis for decisions - but only place trades immediately
+    // Bot uses sophisticated analysis for multi-bet decisions
     if (recommendation === 'STRONG_BUY' && confidence >= bot.settings.minConfidence && expectedValue >= bot.settings.minExpectedValue) {
       executePaperTrade('BET', betAmount, 'Strong buy signal from enhanced prediction system');
     } else if (recommendation === 'BUY' && confidence >= bot.settings.minConfidence * 0.9 && expectedValue >= bot.settings.minExpectedValue * 0.8) {
@@ -345,6 +385,10 @@ export function PlayerAssistanceCenter({
       timestamp: new Date()
     };
 
+    // Add to current game bets
+    setCurrentGameBets(prev => [...prev, trade]);
+    
+    // Keep legacy currentTrade for compatibility (most recent bet)
     setBot(prev => ({
       ...prev,
       currentTrade: trade
@@ -353,57 +397,70 @@ export function PlayerAssistanceCenter({
     onTradeExecuted?.(trade);
   };
 
-  // Check if current trade should be resolved
+  // Check if current trades should be resolved - multi-bet logic
   useEffect(() => {
-    if (bot.currentTrade && gameState.active) {
-      const trade = bot.currentTrade;
+    if (currentGameBets.length > 0) {
+      const updatedBets = [...currentGameBets];
+      let hasUpdates = false;
       
-      // Check if we passed the end tick without rugging (trade lost)
-      if (gameState.tickCount > trade.endTick) {
-        const updatedTrade = {
-          ...trade,
-          actualOutcome: 'LOSS' as const,
-          profit: -trade.betAmount
-        };
+      currentGameBets.forEach((bet, index) => {
+        if (bet.actualOutcome === 'PENDING') {
+          // Game still active - check if bet window expired
+          if (gameState.active && gameState.tickCount > bet.endTick) {
+            updatedBets[index] = {
+              ...bet,
+              actualOutcome: 'LOSS',
+              profit: -bet.betAmount
+            };
+            hasUpdates = true;
+          }
+          // Game ended (rugged) - check if bet won
+          else if (!gameState.active && gameState.tickCount <= bet.endTick) {
+            updatedBets[index] = {
+              ...bet,
+              actualOutcome: 'WIN',
+              profit: bet.payout - bet.betAmount
+            };
+            hasUpdates = true;
+          }
+          // Game ended (rugged) but after bet window
+          else if (!gameState.active && gameState.tickCount > bet.endTick) {
+            updatedBets[index] = {
+              ...bet,
+              actualOutcome: 'LOSS',
+              profit: -bet.betAmount
+            };
+            hasUpdates = true;
+          }
+        }
+      });
+      
+      if (hasUpdates) {
+        setCurrentGameBets(updatedBets);
         
-        setBot(prev => {
-          const newTradeHistory = [...prev.tradeHistory, updatedTrade];
-          return {
-            ...prev,
-            currentTrade: null,
-            tradeHistory: newTradeHistory,
-            totalTrades: newTradeHistory.length,
-            totalProfit: prev.totalProfit - trade.betAmount
-          };
-        });
+        // Update bot stats with resolved bets
+        const resolvedBets = updatedBets.filter(bet => 
+          bet.actualOutcome !== 'PENDING' && 
+          !bot.tradeHistory.some(h => h.id === bet.id)
+        );
+        
+        if (resolvedBets.length > 0) {
+          setBot(prev => {
+            const newTradeHistory = [...prev.tradeHistory, ...resolvedBets];
+            const totalProfit = newTradeHistory.reduce((sum, t) => sum + t.profit, 0);
+            
+            return {
+              ...prev,
+              currentTrade: updatedBets.find(b => b.actualOutcome === 'PENDING') || null,
+              tradeHistory: newTradeHistory,
+              totalTrades: newTradeHistory.length,
+              totalProfit
+            };
+          });
+        }
       }
     }
-    
-    // Handle game ending (rug) - check if any active trade won
-    if (!gameState.active && bot.currentTrade) {
-      const trade = bot.currentTrade;
-      // Game ended - check if it was within our prediction window
-      const outcome = gameState.tickCount <= trade.endTick ? 'WIN' : 'LOSS';
-      const profit = outcome === 'WIN' ? trade.payout - trade.betAmount : -trade.betAmount;
-      
-      const updatedTrade = {
-        ...trade,
-        actualOutcome: outcome as 'WIN' | 'LOSS',
-        profit
-      };
-      
-      setBot(prev => {
-        const newTradeHistory = [...prev.tradeHistory, updatedTrade];
-        return {
-          ...prev,
-          currentTrade: null,
-          tradeHistory: newTradeHistory,
-          totalTrades: newTradeHistory.length,
-          totalProfit: prev.totalProfit + profit
-        };
-      });
-    }
-  }, [gameState.tickCount, gameState.active, bot.currentTrade]);
+  }, [gameState.tickCount, gameState.active, currentGameBets.length]);
 
   // Update opportunities when game state changes
   useEffect(() => {
@@ -445,6 +502,7 @@ export function PlayerAssistanceCenter({
 
   const stats = calculateStats();
 
+
   const getRecommendationColor = (rec: string) => {
     switch (rec) {
       case 'STRONG_BUY': return 'bg-crypto-green text-white border-crypto-green';
@@ -472,47 +530,78 @@ export function PlayerAssistanceCenter({
 
   return (
     <div className="space-y-6">
-      {/* Bot Position Status - PROMINENT when active */}
-      {bot.currentTrade && (
+      {/* Multi-Bet Game Position Status - PROMINENT when active */}
+      {currentGameBets.length > 0 && (
         <Card className="bg-gradient-to-r from-accent-blue/20 to-crypto-green/20 border-accent-blue border-2">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
                   <Bot className="h-6 w-6 text-accent-blue" />
-                  <span className="text-xl font-bold text-white">ACTIVE SIDE BET</span>
+                  <span className="text-xl font-bold text-white">ACTIVE GAME POSITIONS</span>
                 </div>
                 <Badge className="bg-accent-blue text-white px-3 py-1 text-sm font-bold">
-                  IN POSITION
+                  {getCurrentGameTotals().activeBetsCount} ACTIVE BETS
                 </Badge>
               </div>
               <div className="text-right">
-                <div className="text-2xl font-bold text-crypto-green">
-                  {bot.currentTrade.betAmount.toFixed(3)} SOL
+                <div className="text-2xl font-bold text-red-400">
+                  -{getCurrentGameTotals().totalCost.toFixed(3)} SOL
                 </div>
-                <div className="text-sm text-gray-300">Bet Amount</div>
+                <div className="text-sm text-gray-300">💸 Total Game Cost</div>
               </div>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-4">
-              <div className="text-center p-3 bg-dark-bg/50 rounded border border-gray-600">
-                <div className="text-xl font-bold text-accent-blue">
-                  {bot.currentTrade.startTick}-{bot.currentTrade.endTick}
+            
+            {/* Game-level summary */}
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-red-500">
+                <div className="text-xl font-bold text-red-400">
+                  -{getCurrentGameTotals().totalCost.toFixed(3)} SOL
                 </div>
-                <div className="text-sm text-gray-300">Tick Range</div>
+                <div className="text-sm text-gray-300">💸 Total Cost</div>
               </div>
-              <div className="text-center p-3 bg-dark-bg/50 rounded border border-gray-600">
-                <div className="text-xl font-bold text-yellow-500">
-                  {gameState.active ? Math.max(0, bot.currentTrade.endTick - gameState.tickCount) : 'Game Ended'}
-                </div>
-                <div className="text-sm text-gray-300">Ticks Remaining</div>
-              </div>
-              <div className="text-center p-3 bg-dark-bg/50 rounded border border-gray-600">
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-crypto-green">
                 <div className="text-xl font-bold text-crypto-green">
-                  {(bot.currentTrade.payout).toFixed(3)} SOL
+                  +{getCurrentGameTotals().totalPotentialPayout.toFixed(3)} SOL
                 </div>
-                <div className="text-sm text-gray-300">Potential Payout</div>
+                <div className="text-sm text-gray-300">🎯 Potential Returns</div>
+              </div>
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-yellow-500">
+                <div className="text-xl font-bold text-yellow-500">
+                  +{(getCurrentGameTotals().totalPotentialPayout - getCurrentGameTotals().totalCost).toFixed(3)} SOL
+                </div>
+                <div className="text-sm text-gray-300">💰 Net Profit Potential</div>
+              </div>
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-accent-blue">
+                <div className="text-xl font-bold text-accent-blue">
+                  {getCurrentGameTotals().activeBetsCount}/{getCurrentGameTotals().totalBetsCount}
+                </div>
+                <div className="text-sm text-gray-300">📊 Active/Total Bets</div>
               </div>
             </div>
+            
+            {/* Individual active bets */}
+            {getCurrentGameTotals().activeBetsCount > 0 && (
+              <div className="mt-4">
+                <div className="text-sm font-semibold text-gray-300 mb-2">🎯 Active Positions:</div>
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {currentGameBets.filter(bet => bet.actualOutcome === 'PENDING').map((bet) => (
+                    <div key={bet.id} className="flex justify-between items-center p-2 bg-dark-bg/30 rounded border border-gray-600">
+                      <div className="flex items-center space-x-4">
+                        <span className="text-red-400 font-bold text-sm">{bet.betAmount.toFixed(3)} SOL</span>
+                        <span className="text-white text-sm">Ticks {bet.startTick}-{bet.endTick}</span>
+                        <span className="text-yellow-500 text-sm font-bold">
+                          {gameState.active ? Math.max(0, bet.endTick - gameState.tickCount) : '⚰️'} remaining
+                        </span>
+                      </div>
+                      <div className="text-crypto-green font-bold text-sm">
+                        → {bet.payout.toFixed(3)} SOL
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -636,10 +725,22 @@ export function PlayerAssistanceCenter({
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">Status:</span>
-                    <span className={bot.currentTrade ? 'text-accent-blue font-bold' : 'text-crypto-green'}>
-                      {bot.currentTrade ? '🎯 IN POSITION' : '👁️ MONITORING'}
+                    <span className={getCurrentGameTotals().activeBetsCount > 0 ? 'text-accent-blue font-bold' : 'text-crypto-green'}>
+                      {getCurrentGameTotals().activeBetsCount > 0 ? `🎯 ${getCurrentGameTotals().activeBetsCount} ACTIVE BETS` : '👁️ MONITORING'}
                     </span>
                   </div>
+                  {getCurrentGameTotals().activeBetsCount > 0 && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-400">Game Cost:</span>
+                        <span className="text-red-400 font-bold">-{getCurrentGameTotals().totalCost.toFixed(3)} SOL</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-400">Potential:</span>
+                        <span className="text-crypto-green font-bold">+{getCurrentGameTotals().totalPotentialPayout.toFixed(3)} SOL</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
