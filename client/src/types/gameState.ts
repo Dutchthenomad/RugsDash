@@ -190,14 +190,15 @@ export interface TrackingData {
 // === ADVANCED PREDICTION SYSTEMS ===
 
 export interface VolatilitySignal {
-  signal: 'IMMINENT_RUG_WARNING' | 'DANGER_ZONE' | 'CAUTION' | 'NORMAL';
+  signal: 'IMMINENT_RUG_WARNING' | 'ELEVATED_RISK' | 'DANGER_ZONE' | 'CAUTION' | 'NORMAL';
   confidence: number;
-  recommendedAction?: 'IMMEDIATE_EXIT' | 'CAUTION' | 'MONITOR';
+  recommendedAction?: 'IMMEDIATE_EXIT' | 'PREPARE_EXIT' | 'CAUTION' | 'MONITOR' | 'SAFE';
   timeWindow?: string;
+  spikeRatio?: number; // Current volatility / normal volatility
 }
 
 export interface TreasuryPrediction {
-  riskLevel: 'EXTREMELY_HIGH' | 'HIGH' | 'MODERATE' | 'NORMAL';
+  riskLevel: 'EXTREMELY_HIGH' | 'HIGH' | 'ELEVATED' | 'MODERATE' | 'NORMAL';
   instarhugProbability: number;
   recommendation: 'AVOID_EARLY_GAME' | 'LATE_ENTRY_ONLY' | 'NORMAL_OPERATION';
   reason?: string;

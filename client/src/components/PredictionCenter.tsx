@@ -430,7 +430,7 @@ export function PredictionCenter({
       currentTreasuryPrediction: {
         riskLevel: treasuryRisk,
         instarhugProbability,
-        recommendation
+        recommendation: recommendation as 'AVOID_EARLY_GAME' | 'LATE_ENTRY_ONLY' | 'NORMAL_OPERATION'
       }
     }));
     
@@ -581,7 +581,7 @@ export function PredictionCenter({
         const variance = 0.05; // 5% variance
         return gameState.price * (0.95 + Math.random() * variance * 2);
       });
-      updateVolatilityAnalysis(gameState.price, mockPrices);
+      updateVolatilityAnalysis(gameState.price);
     }
   }, [gameState.price, gameState.active, gameState.tickCount]);
   
