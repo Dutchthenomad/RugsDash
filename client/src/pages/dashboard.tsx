@@ -2,16 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { WebSocketClient } from '../lib/websocketClient';
 import { AdaptivePredictionEngine } from '../lib/predictionEngine';
 import { ConnectionStatus } from '../components/ConnectionStatus';
-import { LiveGameData } from '../components/LiveGameData';
-import { PredictionEngine } from '../components/PredictionEngine';
-import { PredictionZones } from '../components/PredictionZones';
-import { PerformanceAnalytics } from '../components/PerformanceAnalytics';
-import { PredictionCenter } from '../components/PredictionCenter';
-import { AnalyticsSidebar } from '../components/AnalyticsSidebar';
-import { SessionStatsModal } from '../components/SessionStatsModal';
+import { PlayerAssistanceCenter } from '../components/PlayerAssistanceCenter';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Settings } from 'lucide-react';
 import { 
   GameStateData, 
   ConnectionStatus as ConnectionStatusType,
@@ -67,23 +61,6 @@ export default function Dashboard() {
     median: 251.0
   });
   
-  const [analytics, setAnalytics] = useState<AnalyticsData>({
-    accuracy: 0,
-    recent10: '0/0',
-    confidence: 0,
-    brierScore: 0,
-    totalBets: 0,
-    winRate: 0,
-    totalProfit: 0
-  });
-  
-  const [market, setMarket] = useState<MarketData>({
-    avgLength: 284,
-    earlyRugRate: 0.234,
-    lateGameRate: 0.766,
-    volatility: 0.234
-  });
-  
   const [strategy, setStrategy] = useState<StrategyData>({
     recommendedBet: 0,
     riskLevel: 'MODERATE',
@@ -91,7 +68,6 @@ export default function Dashboard() {
     successRate: 0
   });
   
-  const [recentPredictions, setRecentPredictions] = useState<RecentPrediction[]>([]);
   const [paperTrades, setPaperTrades] = useState<PaperTrade[]>([]);
   const [historicalInsights, setHistoricalInsights] = useState<HistoricalInsightsType>({
     totalGamesAnalyzed: 0,
@@ -102,14 +78,7 @@ export default function Dashboard() {
     modelConfidence: 0,
     optimalBetTiming: []
   });
-  const [bankrollStrategy, setBankrollStrategy] = useState<BankrollStrategy>({
-    recommendedBankroll: 0.5,
-    maxConsecutiveLosses: 8,
-    expectedWinStreak: 3,
-    profitProbability: 0.85,
-    breakEvenPoint: 25
-  });
-  const [isSessionStatsOpen, setIsSessionStatsOpen] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Initialize WebSocket connections
   useEffect(() => {
@@ -144,8 +113,7 @@ export default function Dashboard() {
     // Update strategy based on current prediction
     updateStrategy(currentPrediction);
     
-    // Update analytics and historical insights
-    updateAnalytics();
+    // Update historical insights
     updateHistoricalInsights();
   };
 
@@ -165,36 +133,12 @@ export default function Dashboard() {
     });
   };
 
-  const updateAnalytics = () => {
-    const accuracy = predictionEngine.getAccuracy();
-    const brierScore = predictionEngine.getBrierScore();
-    
-    setAnalytics(prev => ({
-      ...prev,
-      accuracy,
-      brierScore,
-      confidence: timing.reliability,
-      recent10: `${Math.floor(accuracy * 10)}/10` // Simplified
-    }));
-  };
   
   const updateHistoricalInsights = () => {
     const insights = predictionEngine.getHistoricalInsights();
     setHistoricalInsights(insights);
     
-    // Update bankroll strategy based on insights
-    if (insights.totalGamesAnalyzed > 10) {
-      const confidence = insights.modelConfidence;
-      const avgLength = insights.avgGameLength;
-      
-      setBankrollStrategy({
-        recommendedBankroll: Math.max(0.1, confidence * 0.8),
-        maxConsecutiveLosses: Math.max(5, Math.floor(avgLength / 50)),
-        expectedWinStreak: Math.max(2, Math.floor(insights.optimalBetTiming.length * 1.5)),
-        profitProbability: Math.min(0.95, 0.7 + (confidence * 0.25)),
-        breakEvenPoint: Math.max(10, Math.floor(50 - (confidence * 30)))
-      });
-    }
+    // Insights updated for background processing
   };
 
   const handleReconnect = () => {
@@ -207,39 +151,31 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-dark-bg text-white">
-      {/* Live Game Data Header */}
-      <div className="bg-card-bg border-b border-gray-700 px-6 py-3">
+      {/* Simplified Header */}
+      <div className="bg-card-bg border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
-          {/* Live Game Data */}
-          <div className="flex items-center space-x-8">
-            <div className="flex items-center space-x-4">
-              <div className="text-center">
-                <div className={`text-3xl font-mono font-bold ${gameState.active ? 'text-crypto-green' : 'text-gray-400'}`}>
-                  {gameState.price.toFixed(2)}x
-                </div>
-                <div className="text-xs text-gray-400">Current Price</div>
+          {/* Essential Game Data */}
+          <div className="flex items-center space-x-6">
+            <div className="text-center">
+              <div className={`text-2xl font-mono font-bold ${gameState.active ? 'text-crypto-green' : 'text-gray-400'}`}>
+                {gameState.price.toFixed(2)}x
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-mono font-bold text-accent-blue">
-                  {gameState.tickCount}
-                </div>
-                <div className="text-xs text-gray-400">Tick Count</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-mono font-bold text-alert-red">
-                  {gameState.peakPrice?.toFixed(2) || '1.00'}x
-                </div>
-                <div className="text-xs text-gray-400">Peak Price</div>
-              </div>
-              {!gameState.active && (
-                <div className="text-center">
-                  <div className="text-xl font-mono font-bold text-yellow-500">
-                    {gameState.cooldownTimer}s
-                  </div>
-                  <div className="text-xs text-gray-400">Next Game</div>
-                </div>
-              )}
+              <div className="text-xs text-gray-400">Price</div>
             </div>
+            <div className="text-center">
+              <div className="text-2xl font-mono font-bold text-accent-blue">
+                {gameState.tickCount}
+              </div>
+              <div className="text-xs text-gray-400">Tick</div>
+            </div>
+            {!gameState.active && (
+              <div className="text-center">
+                <div className="text-xl font-mono font-bold text-yellow-500">
+                  {gameState.cooldownTimer}s
+                </div>
+                <div className="text-xs text-gray-400">Next Game</div>
+              </div>
+            )}
             
             <ConnectionStatus 
               status={connectionStatus} 
@@ -248,15 +184,15 @@ export default function Dashboard() {
           </div>
           
           {/* Controls */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             <Button 
-              onClick={() => setIsSessionStatsOpen(true)}
+              onClick={() => setShowAdvanced(!showAdvanced)}
               variant="outline"
               size="sm"
-              className="border-accent-blue text-accent-blue hover:bg-accent-blue hover:text-white"
+              className="border-gray-600 text-gray-400 hover:bg-gray-600 hover:text-white"
             >
-              <BarChart3 className="h-4 w-4 mr-1" />
-              Stats
+              <Settings className="h-4 w-4 mr-1" />
+              {showAdvanced ? 'Simple' : 'Advanced'}
             </Button>
             <Badge 
               variant="outline" 
@@ -268,12 +204,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Main Dashboard Grid */}
-      <div className="p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
-        {/* Main Prediction Center - Takes center stage */}
-        <div className="lg:col-span-3">
-          <PredictionCenter 
+      {/* Player-Focused Main Content */}
+      <div className="p-6">
+        <div className="max-w-6xl mx-auto">
+          <PlayerAssistanceCenter 
             prediction={prediction}
             gameState={gameState}
             timing={timing}
@@ -281,26 +215,33 @@ export default function Dashboard() {
             insights={historicalInsights}
             onTradeExecuted={handleTradeExecuted}
           />
-        </div>
-
-        {/* Analytics Sidebar - Ancillary data */}
-        <div>
-          <AnalyticsSidebar 
-            analytics={analytics}
-            market={market}
-            insights={historicalInsights}
-            bankrollStrategy={bankrollStrategy}
-            recentPredictions={recentPredictions}
-          />
+          
+          {/* Advanced View - Only shown when requested */}
+          {showAdvanced && (
+            <div className="mt-8 p-6 bg-card-bg border border-gray-700 rounded-lg">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center">
+                <BarChart3 className="h-5 w-5 mr-2 text-accent-blue" />
+                Advanced Analytics
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center p-4 bg-dark-bg rounded border border-gray-700">
+                  <div className="text-xl font-bold text-accent-blue">{Math.round(timing.reliability * 100)}%</div>
+                  <div className="text-sm text-gray-400">Timing Reliability</div>
+                </div>
+                <div className="text-center p-4 bg-dark-bg rounded border border-gray-700">
+                  <div className="text-xl font-bold text-crypto-green">{timing.currentRate.toFixed(0)}ms</div>
+                  <div className="text-sm text-gray-400">Current Tick Rate</div>
+                </div>
+                <div className="text-center p-4 bg-dark-bg rounded border border-gray-700">
+                  <div className="text-xl font-bold text-yellow-500">{historicalInsights.totalGamesAnalyzed}</div>
+                  <div className="text-sm text-gray-400">Games Analyzed</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Session Stats Modal */}
-      <SessionStatsModal 
-        isOpen={isSessionStatsOpen}
-        onClose={() => setIsSessionStatsOpen(false)}
-        analytics={analytics}
-      />
     </div>
   );
 }
