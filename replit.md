@@ -4,6 +4,18 @@
 
 This is a sophisticated side betting prediction system for the Rugs.fun gaming platform. The application combines real-time WebSocket data analysis with advanced mathematical prediction models to provide strategic betting insights. It features an adaptive prediction engine that analyzes game tick timing data to calculate optimal betting opportunities, complete with risk assessment and expected value calculations.
 
+## Recent Changes
+
+### August 2025 - Major Dashboard Restructure & Paper Trading Bot
+- **Complete UI/UX overhaul for fast-paced gameplay optimization**
+- **Integrated paper trading bot framework with real-time P&L tracking**
+- **Streamlined layout**: Live game data moved to top header, removed title frame entirely
+- **Combined prediction zones and bot system into main PredictionCenter component**
+- **Consolidated analytics into compact AnalyticsSidebar for ancillary data viewing**
+- **Focused design**: Core prediction and bot recommendations front and center
+- **Optimized for quick decision making**: Predictions, bot status, and P&L prominently displayed
+- **Paper trading automation**: Bot makes decisions based on confidence thresholds and expected value
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.

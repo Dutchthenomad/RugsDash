@@ -6,8 +6,8 @@ import { LiveGameData } from '../components/LiveGameData';
 import { PredictionEngine } from '../components/PredictionEngine';
 import { PredictionZones } from '../components/PredictionZones';
 import { PerformanceAnalytics } from '../components/PerformanceAnalytics';
-import { HistoricalInsights } from '../components/HistoricalInsights';
-import { PaperTradingBot } from '../components/PaperTradingBot';
+import { PredictionCenter } from '../components/PredictionCenter';
+import { AnalyticsSidebar } from '../components/AnalyticsSidebar';
 import { SessionStatsModal } from '../components/SessionStatsModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -207,75 +207,92 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-dark-bg text-white">
-      {/* Header */}
-      <header className="bg-card-bg border-b border-gray-700 px-6 py-4">
+      {/* Live Game Data Header */}
+      <div className="bg-card-bg border-b border-gray-700 px-6 py-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold text-crypto-green flex items-center">
-              <BarChart3 className="h-8 w-8 mr-2" />
-              Rugs.fun Deep Analytics Engine
-            </h1>
+          {/* Live Game Data */}
+          <div className="flex items-center space-x-8">
+            <div className="flex items-center space-x-4">
+              <div className="text-center">
+                <div className={`text-3xl font-mono font-bold ${gameState.active ? 'text-crypto-green' : 'text-gray-400'}`}>
+                  {gameState.price.toFixed(2)}x
+                </div>
+                <div className="text-xs text-gray-400">Current Price</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-mono font-bold text-accent-blue">
+                  {gameState.tickCount}
+                </div>
+                <div className="text-xs text-gray-400">Tick Count</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-mono font-bold text-alert-red">
+                  {gameState.peakPrice?.toFixed(2) || '1.00'}x
+                </div>
+                <div className="text-xs text-gray-400">Peak Price</div>
+              </div>
+              {!gameState.active && (
+                <div className="text-center">
+                  <div className="text-xl font-mono font-bold text-yellow-500">
+                    {gameState.cooldownTimer}s
+                  </div>
+                  <div className="text-xs text-gray-400">Next Game</div>
+                </div>
+              )}
+            </div>
+            
             <ConnectionStatus 
               status={connectionStatus} 
               onReconnect={handleReconnect}
             />
           </div>
+          
+          {/* Controls */}
           <div className="flex items-center space-x-4">
             <Button 
               onClick={() => setIsSessionStatsOpen(true)}
               variant="outline"
+              size="sm"
               className="border-accent-blue text-accent-blue hover:bg-accent-blue hover:text-white"
             >
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Session Stats
+              <BarChart3 className="h-4 w-4 mr-1" />
+              Stats
             </Button>
-            <div className="text-right">
-              <div className="text-xs text-gray-400">Frontend Version</div>
-              <Badge variant="outline" className="font-mono text-xs">1.0</Badge>
-            </div>
+            <Badge 
+              variant="outline" 
+              className={`${gameState.active ? 'text-crypto-green border-crypto-green' : 'text-gray-400 border-gray-400'}`}
+            >
+              {gameState.active ? 'LIVE' : 'WAITING'}
+            </Badge>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Main Dashboard Grid */}
-      <div className="p-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
         
-        {/* Live Game Data - Left Section */}
-        <div className="lg:col-span-2 space-y-6">
-          <LiveGameData gameState={gameState} />
-          <PredictionEngine prediction={prediction} timing={timing} />
-        </div>
-
-        {/* Prediction Zones - Center Section */}
-        <div>
-          <PredictionZones prediction={prediction} strategy={strategy} />
-        </div>
-
-        {/* Paper Trading Bot - Right Center */}
-        <div>
-          <PaperTradingBot 
+        {/* Main Prediction Center - Takes center stage */}
+        <div className="lg:col-span-3">
+          <PredictionCenter 
             prediction={prediction}
             gameState={gameState}
+            timing={timing}
+            strategy={strategy}
+            insights={historicalInsights}
             onTradeExecuted={handleTradeExecuted}
           />
         </div>
 
-        {/* Historical Intelligence - Right Section */}
+        {/* Analytics Sidebar - Ancillary data */}
         <div>
-          <HistoricalInsights 
+          <AnalyticsSidebar 
+            analytics={analytics}
+            market={market}
             insights={historicalInsights}
             bankrollStrategy={bankrollStrategy}
+            recentPredictions={recentPredictions}
           />
         </div>
-      </div>
-      
-      {/* Performance Analytics - Bottom Section */}
-      <div className="px-6 pb-6">
-        <PerformanceAnalytics 
-          analytics={analytics}
-          market={market}
-          recentPredictions={recentPredictions}
-        />
       </div>
 
       {/* Session Stats Modal */}
