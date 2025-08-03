@@ -47,7 +47,7 @@ export interface IStorage {
   getSideBets(gameId?: string, playerId?: string): Promise<SideBet[]>;
   
   // Q-Learning state management
-  getOrCreateQState(stateFeatures: any): Promise<QState>;
+  getOrCreateQState(stateFeatures: Record<string, any>): Promise<QState>;
   updateQState(stateId: string, visitCount: number): Promise<QState>;
   getQStates(limit?: number): Promise<QState[]>;
   
@@ -90,6 +90,15 @@ export class MemStorage implements IStorage {
   private predictionResults: Map<string, PredictionResult>;
   private gameHistory: Map<string, GameHistory>;
   private marketPatterns: Map<string, MarketPattern>;
+  
+  // Q-Learning storage
+  private sideBets: Map<string, SideBet>;
+  private qStates: Map<string, QState>;
+  private qActions: Map<string, QAction>;
+  private qValues: Map<string, QValue>;
+  private trainingEpisodes: Map<string, TrainingEpisode>;
+  private modelParameters: Map<string, ModelParameter>;
+  private performanceMetrics: Map<string, PerformanceMetric>;
 
   constructor() {
     this.users = new Map();
@@ -97,6 +106,15 @@ export class MemStorage implements IStorage {
     this.predictionResults = new Map();
     this.gameHistory = new Map();
     this.marketPatterns = new Map();
+    
+    // Initialize Q-Learning storage
+    this.sideBets = new Map();
+    this.qStates = new Map();
+    this.qActions = new Map();
+    this.qValues = new Map();
+    this.trainingEpisodes = new Map();
+    this.modelParameters = new Map();
+    this.performanceMetrics = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -235,6 +253,289 @@ export class MemStorage implements IStorage {
       avgPeakMultiplier,
       rugProbabilityByTick,
       confidenceScore
+    };
+  }
+
+  // Q-Learning side bet methods
+  async saveSideBet(insertSideBet: InsertSideBet): Promise<SideBet> {
+    const id = randomUUID();
+    const sideBet: SideBet = {
+      ...insertSideBet,
+      id,
+      rugTick: insertSideBet.rugTick || null,
+      gameState: insertSideBet.gameState || null,
+      profit: insertSideBet.profit || 0,
+      createdAt: new Date(),
+      resolvedAt: insertSideBet.resolvedAt || null
+    };
+    this.sideBets.set(id, sideBet);
+    return sideBet;
+  }
+
+  async updateSideBet(id: string, update: Partial<InsertSideBet>): Promise<SideBet> {
+    const existing = this.sideBets.get(id);
+    if (!existing) {
+      throw new Error(`SideBet with id ${id} not found`);
+    }
+    
+    const updated: SideBet = {
+      ...existing,
+      ...update,
+      resolvedAt: update.resolvedAt || existing.resolvedAt
+    };
+    this.sideBets.set(id, updated);
+    return updated;
+  }
+
+  async getSideBets(gameId?: string, playerId?: string): Promise<SideBet[]> {
+    let bets = Array.from(this.sideBets.values());
+    
+    if (gameId) {
+      bets = bets.filter(bet => bet.gameId === gameId);
+    }
+    if (playerId) {
+      bets = bets.filter(bet => bet.playerId === playerId);
+    }
+    
+    return bets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  // Q-Learning state methods
+  async getOrCreateQState(stateFeatures: Record<string, any>): Promise<QState> {
+    // Create hash of state features for deduplication
+    const stateHash = JSON.stringify(stateFeatures);
+    
+    // Try to find existing state
+    const existingState = Array.from(this.qStates.values()).find(state => state.stateHash === stateHash);
+    
+    if (existingState) {
+      // Update visit count and last seen
+      const updated: QState = {
+        ...existingState,
+        visitCount: existingState.visitCount + 1,
+        lastSeen: new Date()
+      };
+      this.qStates.set(existingState.id, updated);
+      return updated;
+    }
+    
+    // Create new state
+    const id = randomUUID();
+    const newState: QState = {
+      id,
+      stateHash,
+      tickCount: stateFeatures.tickCount,
+      priceLevel: stateFeatures.priceLevel,
+      volatilityLevel: stateFeatures.volatilityLevel,
+      timingReliability: stateFeatures.timingReliability,
+      gamePhase: stateFeatures.gamePhase,
+      recentPattern: stateFeatures.recentPattern,
+      features: stateFeatures,
+      visitCount: 1,
+      createdAt: new Date(),
+      lastSeen: new Date()
+    };
+    
+    this.qStates.set(id, newState);
+    return newState;
+  }
+
+  async updateQState(stateId: string, visitCount: number): Promise<QState> {
+    const existing = this.qStates.get(stateId);
+    if (!existing) {
+      throw new Error(`QState with id ${stateId} not found`);
+    }
+    
+    const updated: QState = {
+      ...existing,
+      visitCount,
+      lastSeen: new Date()
+    };
+    this.qStates.set(stateId, updated);
+    return updated;
+  }
+
+  async getQStates(limit: number = 1000): Promise<QState[]> {
+    const states = Array.from(this.qStates.values())
+      .sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
+    return limit ? states.slice(0, limit) : states;
+  }
+
+  // Q-Learning action methods
+  async getQActions(): Promise<QAction[]> {
+    return Array.from(this.qActions.values()).filter(action => action.isActive);
+  }
+
+  async createQAction(insertAction: InsertQAction): Promise<QAction> {
+    const id = randomUUID();
+    const action: QAction = {
+      ...insertAction,
+      id,
+      isActive: insertAction.isActive ?? true
+    };
+    this.qActions.set(id, action);
+    return action;
+  }
+
+  // Q-Value methods
+  async getQValue(stateId: string, actionId: string): Promise<QValue | null> {
+    const qValue = Array.from(this.qValues.values()).find(
+      qv => qv.stateId === stateId && qv.actionId === actionId
+    );
+    return qValue || null;
+  }
+
+  async updateQValue(stateId: string, actionId: string, qValue: number, reward?: number): Promise<QValue> {
+    // Try to update existing Q-value
+    const existing = await this.getQValue(stateId, actionId);
+    
+    if (existing) {
+      const updated: QValue = {
+        ...existing,
+        qValue,
+        visitCount: existing.visitCount + 1,
+        lastReward: reward !== undefined ? reward : existing.lastReward,
+        updatedAt: new Date()
+      };
+      this.qValues.set(existing.id, updated);
+      return updated;
+    }
+    
+    // Create new Q-value
+    const id = randomUUID();
+    const newQValue: QValue = {
+      id,
+      stateId,
+      actionId,
+      qValue,
+      visitCount: 1,
+      lastReward: reward || null,
+      updatedAt: new Date()
+    };
+    
+    this.qValues.set(id, newQValue);
+    return newQValue;
+  }
+
+  async getTopQValues(stateId: string): Promise<QValue[]> {
+    return Array.from(this.qValues.values())
+      .filter(qv => qv.stateId === stateId)
+      .sort((a, b) => b.qValue - a.qValue)
+      .slice(0, 10);
+  }
+
+  // Training episode methods
+  async saveTrainingEpisode(insertEpisode: InsertTrainingEpisode): Promise<TrainingEpisode> {
+    const id = randomUUID();
+    const episode: TrainingEpisode = {
+      ...insertEpisode,
+      id,
+      createdAt: new Date()
+    };
+    this.trainingEpisodes.set(id, episode);
+    return episode;
+  }
+
+  async getTrainingEpisodes(limit: number = 100): Promise<TrainingEpisode[]> {
+    const episodes = Array.from(this.trainingEpisodes.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return limit ? episodes.slice(0, limit) : episodes;
+  }
+
+  // Model parameter methods
+  async getModelParameter(name: string): Promise<ModelParameter | null> {
+    const param = Array.from(this.modelParameters.values()).find(p => p.parameterName === name);
+    return param || null;
+  }
+
+  async setModelParameter(name: string, value: number, category: string, description?: string): Promise<ModelParameter> {
+    const existing = await this.getModelParameter(name);
+    
+    if (existing) {
+      const updated: ModelParameter = {
+        ...existing,
+        parameterValue: value,
+        version: existing.version + 1,
+        updatedAt: new Date()
+      };
+      this.modelParameters.set(existing.id, updated);
+      return updated;
+    }
+    
+    const id = randomUUID();
+    const newParam: ModelParameter = {
+      id,
+      parameterName: name,
+      parameterValue: value,
+      description: description || null,
+      category,
+      version: 1,
+      updatedAt: new Date()
+    };
+    
+    this.modelParameters.set(id, newParam);
+    return newParam;
+  }
+
+  async getAllModelParameters(): Promise<ModelParameter[]> {
+    return Array.from(this.modelParameters.values());
+  }
+
+  // Performance metric methods
+  async savePerformanceMetric(insertMetric: InsertPerformanceMetric): Promise<PerformanceMetric> {
+    const id = randomUUID();
+    const metric: PerformanceMetric = {
+      ...insertMetric,
+      id,
+      createdAt: new Date()
+    };
+    this.performanceMetrics.set(id, metric);
+    return metric;
+  }
+
+  async getPerformanceMetrics(metricType?: string, limit: number = 100): Promise<PerformanceMetric[]> {
+    let metrics = Array.from(this.performanceMetrics.values());
+    
+    if (metricType) {
+      metrics = metrics.filter(m => m.metricType === metricType);
+    }
+    
+    return metrics
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+  }
+
+  // Q-Learning analytics
+  async getQLearningAnalytics(): Promise<{
+    totalEpisodes: number;
+    avgEpisodeReward: number;
+    convergenceRate: number;
+    explorationRate: number;
+    winRate: number;
+    profitability: number;
+  }> {
+    const episodes = Array.from(this.trainingEpisodes.values());
+    const sideBetsData = Array.from(this.sideBets.values()).filter(bet => bet.playerId === 'bot');
+    
+    const totalEpisodes = episodes.length;
+    const avgEpisodeReward = totalEpisodes > 0 ? 
+      episodes.reduce((sum, ep) => sum + ep.totalReward, 0) / totalEpisodes : 0;
+    
+    // Calculate win rate from side bets
+    const completedBets = sideBetsData.filter(bet => bet.actualOutcome !== 'PENDING');
+    const winRate = completedBets.length > 0 ?
+      completedBets.filter(bet => bet.actualOutcome === 'WIN').length / completedBets.length : 0;
+    
+    // Calculate profitability
+    const profitability = completedBets.reduce((sum, bet) => sum + bet.profit, 0);
+    
+    return {
+      totalEpisodes,
+      avgEpisodeReward,
+      convergenceRate: 0.85, // Placeholder - implement convergence detection
+      explorationRate: 0.1, // Current epsilon - should be retrieved from model parameters
+      winRate,
+      profitability
     };
   }
 }
@@ -379,21 +680,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSideBets(gameId?: string, playerId?: string): Promise<SideBet[]> {
-    let query = db.select().from(sideBets);
-    
     if (gameId && playerId) {
-      query = query.where(and(eq(sideBets.gameId, gameId), eq(sideBets.playerId, playerId)));
+      return await db.select().from(sideBets)
+        .where(and(eq(sideBets.gameId, gameId), eq(sideBets.playerId, playerId)))
+        .orderBy(desc(sideBets.createdAt));
     } else if (gameId) {
-      query = query.where(eq(sideBets.gameId, gameId));
+      return await db.select().from(sideBets)
+        .where(eq(sideBets.gameId, gameId))
+        .orderBy(desc(sideBets.createdAt));
     } else if (playerId) {
-      query = query.where(eq(sideBets.playerId, playerId));
+      return await db.select().from(sideBets)
+        .where(eq(sideBets.playerId, playerId))
+        .orderBy(desc(sideBets.createdAt));
     }
     
-    return await query.orderBy(desc(sideBets.createdAt));
+    return await db.select().from(sideBets).orderBy(desc(sideBets.createdAt));
   }
 
   // Q-Learning state methods
-  async getOrCreateQState(stateFeatures: any): Promise<QState> {
+  async getOrCreateQState(stateFeatures: Record<string, any>): Promise<QState> {
     // Create hash of state features for deduplication
     const stateHash = crypto.createHash('md5').update(JSON.stringify(stateFeatures)).digest('hex');
     
@@ -554,13 +859,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPerformanceMetrics(metricType?: string, limit: number = 100): Promise<PerformanceMetric[]> {
-    let query = db.select().from(performanceMetrics);
-    
     if (metricType) {
-      query = query.where(eq(performanceMetrics.metricType, metricType));
+      return await db.select().from(performanceMetrics)
+        .where(eq(performanceMetrics.metricType, metricType))
+        .orderBy(desc(performanceMetrics.createdAt))
+        .limit(limit);
     }
     
-    return await query.orderBy(desc(performanceMetrics.createdAt)).limit(limit);
+    return await db.select().from(performanceMetrics)
+      .orderBy(desc(performanceMetrics.createdAt))
+      .limit(limit);
   }
 
   // Q-Learning analytics

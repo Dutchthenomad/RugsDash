@@ -255,7 +255,7 @@ export class QLearningAgent {
     // Record game outcome for analysis
     this.gameHistory.push({
       gameId: episode.gameId,
-      finalTick: 0, // TODO: Get from game state
+      finalTick: episode.states.length > 0 ? parseInt(episode.states[episode.states.length - 1]) || 0 : 0,
       outcome: finalOutcome
     });
 

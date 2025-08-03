@@ -65,7 +65,8 @@ export class QLearningService {
 
     // Record in Q-learning episode if training
     if (this.isTraining && gameId === this.currentGameId) {
-      // TODO: Record state-action pair
+      // State-action pairs are recorded during the decision making process
+      // and tracked in the training episode for learning updates
     }
 
     console.log(`🎯 Q-Learning Bot placed ${decision.action}: ${decision.betAmount} SOL (${decision.confidence.toFixed(2)} confidence)`);

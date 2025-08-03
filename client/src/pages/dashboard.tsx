@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { WebSocketClient } from '../lib/websocketClient';
 import { AdaptivePredictionEngine } from '../lib/predictionEngine';
 import { ConnectionStatus } from '../components/ConnectionStatus';
