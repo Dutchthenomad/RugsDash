@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { WebSocketClient } from '../lib/websocketClient';
 import { AdaptivePredictionEngine } from '../lib/predictionEngine';
 import { ConnectionStatus } from '../components/ConnectionStatus';
@@ -21,9 +21,17 @@ import {
 } from '../types/gameState';
 
 export default function Dashboard() {
-  // Core state
-  const [wsClient] = useState(() => new WebSocketClient());
-  const [predictionEngine] = useState(() => new AdaptivePredictionEngine());
+  // Core state - using useRef to prevent recreation
+  const wsClientRef = useRef<WebSocketClient | null>(null);
+  const predictionEngineRef = useRef<AdaptivePredictionEngine | null>(null);
+  
+  // Initialize once
+  if (!wsClientRef.current) {
+    wsClientRef.current = new WebSocketClient();
+  }
+  if (!predictionEngineRef.current) {
+    predictionEngineRef.current = new AdaptivePredictionEngine();
+  }
   
   // Component state
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusType>({
@@ -80,45 +88,48 @@ export default function Dashboard() {
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Initialize WebSocket connections
-  useEffect(() => {
-    wsClient.onConnectionChange(setConnectionStatus);
-    wsClient.onGameState(handleGameStateUpdate);
-    
-    return () => {
-      wsClient.disconnect();
-    };
-  }, [wsClient]);
+  // Use callback to avoid closure issues
+  const handleGameStateUpdate = useCallback((newGameState: GameStateData) => {
+    // Update peak price tracking using functional update
+    setGameState(prevState => {
+      const updatedGameState = {
+        ...newGameState,
+        peakPrice: Math.max(
+          newGameState.peakPrice || newGameState.price, 
+          prevState.peakPrice || 1.0
+        )
+      };
+      
+      // Record tick in prediction engine
+      if (predictionEngineRef.current) {
+        predictionEngineRef.current.recordTick(updatedGameState);
+        
+        // Update predictions
+        const currentPrediction = predictionEngineRef.current.getCurrentPrediction();
+        setPrediction(currentPrediction);
+        
+        // Update timing data
+        const currentTiming = predictionEngineRef.current.getTimingData();
+        setTiming(currentTiming);
+        
+        // Update strategy based on current prediction
+        updateStrategy(currentPrediction);
+        
+        // Update historical insights
+        updateHistoricalInsights();
+      }
+      
+      return updatedGameState;
+    });
+  }, []);
 
-  const handleGameStateUpdate = (newGameState: GameStateData) => {
-    // Update peak price tracking
-    const updatedGameState = {
-      ...newGameState,
-      peakPrice: Math.max(newGameState.peakPrice || newGameState.price, gameState.peakPrice || 1.0)
-    };
+  const updateStrategy = useCallback((currentPrediction: PredictionData) => {
+    if (!predictionEngineRef.current) return;
     
-    setGameState(updatedGameState);
-    
-    // Record tick in prediction engine
-    predictionEngine.recordTick(updatedGameState);
-    
-    // Update predictions
-    const currentPrediction = predictionEngine.getCurrentPrediction();
-    setPrediction(currentPrediction);
-    
-    // Update timing data
-    const currentTiming = predictionEngine.getTimingData();
-    setTiming(currentTiming);
-    
-    // Update strategy based on current prediction
-    updateStrategy(currentPrediction);
-    
-    // Update historical insights
-    updateHistoricalInsights();
-  };
-
-  const updateStrategy = (currentPrediction: PredictionData) => {
-    const kellyBet = predictionEngine.calculateKellyBetSize(currentPrediction.rugProbability, 1.0);
+    const kellyBet = predictionEngineRef.current.calculateKellyBetSize(
+      currentPrediction.rugProbability, 
+      1.0
+    );
     const recommendedBet = Math.min(kellyBet, 0.5); // Cap at 0.5 SOL
     
     let riskLevel: 'LOW' | 'MODERATE' | 'HIGH' = 'MODERATE';
@@ -131,23 +142,50 @@ export default function Dashboard() {
       maxProfit: recommendedBet * 4, // 5:1 payout = 4x profit
       successRate: currentPrediction.rugProbability * 100
     });
-  };
+  }, []);
 
-  
-  const updateHistoricalInsights = () => {
-    const insights = predictionEngine.getHistoricalInsights();
-    setHistoricalInsights(insights);
+  const updateHistoricalInsights = useCallback(() => {
+    if (!predictionEngineRef.current) return;
     
-    // Insights updated for background processing
-  };
+    const insights = predictionEngineRef.current.getHistoricalInsights();
+    setHistoricalInsights(insights);
+  }, []);
 
-  const handleReconnect = () => {
-    wsClient.reconnect();
-  };
+  const handleReconnect = useCallback(() => {
+    wsClientRef.current?.reconnect();
+  }, []);
 
-  const handleTradeExecuted = (trade: PaperTrade) => {
+  const handleTradeExecuted = useCallback((trade: PaperTrade) => {
     setPaperTrades(prev => [...prev, trade]);
-  };
+  }, []);
+
+  // Initialize WebSocket connections with proper cleanup
+  useEffect(() => {
+    const wsClient = wsClientRef.current;
+    if (!wsClient) return;
+
+    // Set up event handlers
+    wsClient.onConnectionChange(setConnectionStatus);
+    wsClient.onGameState(handleGameStateUpdate);
+    
+    // Cleanup function
+    return () => {
+      // Remove event handlers before disconnecting
+      wsClient.onConnectionChange(() => {});
+      wsClient.onGameState(() => {});
+      wsClient.disconnect();
+    };
+  }, [handleGameStateUpdate]);
+
+  // Cleanup prediction engine on unmount
+  useEffect(() => {
+    return () => {
+      // Clear any intervals or timers in prediction engine
+      if (predictionEngineRef.current) {
+        // Add cleanup method if needed in prediction engine
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-dark-bg text-white">
@@ -242,7 +280,6 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-
     </div>
   );
 }

@@ -1,11 +1,14 @@
 import { io, Socket } from 'socket.io-client';
 import { GameStateData, ConnectionStatus } from '../types/gameState';
+import { GameStateUpdateMessage, SideBetUpdateMessage, GameEndMessage } from '@shared/types/websocket';
 
 export class WebSocketClient {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private isDestroyed = false;
   
   private onGameStateUpdate?: (data: GameStateData) => void;
   private onConnectionStatusChange?: (status: ConnectionStatus) => void;
@@ -15,6 +18,9 @@ export class WebSocketClient {
   }
 
   private connect(): void {
+    // Don't connect if destroyed
+    if (this.isDestroyed) return;
+    
     try {
       // Connect to rugs.fun backend with required frontend version parameter
       this.socket = io('https://backend.rugs.fun?frontend-version=1.0', {
@@ -33,11 +39,12 @@ export class WebSocketClient {
   }
 
   private setupEventListeners(): void {
-    if (!this.socket) return;
+    if (!this.socket || this.isDestroyed) return;
 
     this.socket.on('connect', () => {
       console.log('Connected to rugs.fun backend');
       this.reconnectAttempts = 0;
+      this.clearReconnectTimeout();
       this.handleConnectionStatus('CONNECTED');
     });
 
@@ -45,8 +52,8 @@ export class WebSocketClient {
       console.log('Disconnected from backend:', reason);
       this.handleConnectionStatus('DISCONNECTED');
       
-      // Attempt to reconnect if not a manual disconnect
-      if (reason !== 'io client disconnect') {
+      // Attempt to reconnect if not a manual disconnect and not destroyed
+      if (reason !== 'io client disconnect' && !this.isDestroyed) {
         this.attemptReconnect();
       }
     });
@@ -54,11 +61,15 @@ export class WebSocketClient {
     this.socket.on('connect_error', (error: Error) => {
       console.error('Connection error:', error);
       this.handleConnectionStatus('ERROR', error.message);
-      this.attemptReconnect();
+      if (!this.isDestroyed) {
+        this.attemptReconnect();
+      }
     });
 
     // Listen for game state updates from rugs.fun
-    this.socket.on('gameStateUpdate', (data: any) => {
+    this.socket.on('gameStateUpdate', (data: GameStateUpdateMessage) => {
+      if (this.isDestroyed) return;
+      
       console.log('Received game state update:', data);
       
       // Transform the data to match our interface
@@ -78,16 +89,32 @@ export class WebSocketClient {
     });
 
     // Listen for other potential events
-    this.socket.on('sideBetUpdate', (data: any) => {
-      console.log('Side bet update:', data);
+    this.socket.on('sideBetUpdate', (data: SideBetUpdateMessage) => {
+      if (!this.isDestroyed) {
+        console.log('Side bet update:', data);
+      }
     });
 
-    this.socket.on('gameEnd', (data: any) => {
-      console.log('Game ended:', data);
+    this.socket.on('gameEnd', (data: GameEndMessage) => {
+      if (!this.isDestroyed) {
+        console.log('Game ended:', data);
+      }
     });
   }
 
+  private clearReconnectTimeout(): void {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
   private attemptReconnect(): void {
+    if (this.isDestroyed) {
+      this.clearReconnectTimeout();
+      return;
+    }
+    
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
       this.handleConnectionStatus('ERROR', 'Max reconnection attempts reached');
@@ -97,14 +124,18 @@ export class WebSocketClient {
     this.reconnectAttempts++;
     this.handleConnectionStatus('RECONNECTING');
     
-    setTimeout(() => {
-      console.log(`Reconnection attempt ${this.reconnectAttempts}`);
-      this.connect();
+    this.clearReconnectTimeout();
+    this.reconnectTimeout = setTimeout(() => {
+      if (!this.isDestroyed) {
+        console.log(`Reconnection attempt ${this.reconnectAttempts}`);
+        this.connect();
+      }
     }, this.reconnectDelay * this.reconnectAttempts);
   }
 
-
   private handleConnectionStatus(status: ConnectionStatus['status'], message?: string): void {
+    if (this.isDestroyed) return;
+    
     const connectionStatus: ConnectionStatus = {
       status,
       reconnectAttempts: this.reconnectAttempts,
@@ -125,20 +156,37 @@ export class WebSocketClient {
   }
 
   public disconnect(): void {
+    this.isDestroyed = true;
+    this.clearReconnectTimeout();
+    
     if (this.socket) {
+      // Remove all listeners before disconnecting
+      this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
     }
+    
+    // Clear callbacks
+    this.onGameStateUpdate = undefined;
+    this.onConnectionStatusChange = undefined;
   }
 
   public isConnected(): boolean {
-    return this.socket?.connected || false;
+    return !this.isDestroyed && (this.socket?.connected || false);
   }
 
   // Method to manually trigger reconnection
   public reconnect(): void {
+    if (this.isDestroyed) return;
+    
     this.disconnect();
+    this.isDestroyed = false;
     this.reconnectAttempts = 0;
     this.connect();
+  }
+  
+  // Destroy method for complete cleanup
+  public destroy(): void {
+    this.disconnect();
   }
 }

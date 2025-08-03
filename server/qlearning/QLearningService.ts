@@ -1,6 +1,7 @@
 import { QLearningAgent, type QLearningDecision } from './QLearningAgent';
 import { storage } from '../storage';
 import { type SideBet } from '@shared/schema';
+import { type GameState, type TimingData } from '../types/qlearning';
 
 export class QLearningService {
   private agent: QLearningAgent;
@@ -19,8 +20,8 @@ export class QLearningService {
 
   // Get AI recommendation for current game state
   public async getRecommendation(
-    gameState: any, 
-    timing: any, 
+    gameState: GameState, 
+    timing: TimingData, 
     bankroll: number = 1.0
   ): Promise<QLearningDecision & { isLearning: boolean }> {
     const decision = await this.agent.makeDecision(gameState, timing, bankroll);
@@ -35,7 +36,7 @@ export class QLearningService {
   public async executeBet(
     gameId: string,
     decision: QLearningDecision,
-    gameState: any
+    gameState: GameState
   ): Promise<SideBet | null> {
     if (decision.action === 'HOLD' || !decision.betAmount) {
       return null;

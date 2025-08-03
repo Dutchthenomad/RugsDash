@@ -8,9 +8,17 @@ const envSchema = z.object({
   PORT: z.string().regex(/^\d+$/).default('5000'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   
-  // Security (will be required later)
-  JWT_SECRET: z.string().min(32).optional(),
-  SESSION_SECRET: z.string().min(32).optional(),
+  // Security (required in production)
+  JWT_SECRET: z.string().min(32).optional().refine(
+    (val) => process.env.NODE_ENV !== 'production' || val !== undefined,
+    { message: 'JWT_SECRET is required in production' }
+  ),
+  JWT_ACCESS_TOKEN_EXPIRES: z.string().default('15m'),
+  JWT_REFRESH_TOKEN_EXPIRES: z.string().default('7d'),
+  SESSION_SECRET: z.string().min(32).optional().refine(
+    (val) => process.env.NODE_ENV !== 'production' || val !== undefined,
+    { message: 'SESSION_SECRET is required in production' }
+  ),
   
   // External services
   RUGS_BACKEND_URL: z.string().url().default('https://backend.rugs.fun'),
@@ -23,6 +31,14 @@ const envSchema = z.object({
   // Logging
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
+  
+  // Rate limiting
+  RATE_LIMIT_WINDOW_MS: z.string().regex(/^\d+$/).default('900000').transform(Number),
+  RATE_LIMIT_MAX_REQUESTS: z.string().regex(/^\d+$/).default('100').transform(Number),
+  STRICT_RATE_LIMIT_MAX_REQUESTS: z.string().regex(/^\d+$/).default('5').transform(Number),
+  
+  // CORS
+  ALLOWED_ORIGINS: z.string().default('http://localhost:3000,http://localhost:5173,http://localhost:5000'),
 });
 
 // Parse and validate environment variables
