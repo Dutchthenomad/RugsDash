@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RugsDash Auth Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .success {
+            color: green;
+            margin-top: 10px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RugsDash Authentication Test</h1>
+        
+        <div class="info">
+            <h3>Test Credentials:</h3>
+            <p><strong>Username:</strong> testuser<br>
+            <strong>Password:</strong> Test123</p>
+        </div>
+
+        <h2>Login Test</h2>
+        <div>
+            <input type="text" id="username" placeholder="Username" value="testuser">
+            <input type="password" id="password" placeholder="Password" value="Test123">
+            <button onclick="login()">Login</button>
+            <button onclick="testAuthMe()">Test /auth/me</button>
+            <button onclick="goToDashboard()">Go to Dashboard</button>
+        </div>
+
+        <div id="result"></div>
+
+        <h2>Current Token:</h2>
+        <pre id="token">No token yet</pre>
+
+        <h2>User Info:</h2>
+        <pre id="userInfo">Not logged in</pre>
+    </div>
+
+    <script>
+        let currentToken = localStorage.getItem('accessToken');
+        if (currentToken) {
+            document.getElementById('token').textContent = currentToken;
+        }
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+
+            try {
+                const response = await fetch('http://localhost:5000/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Store the token
+                    localStorage.setItem('accessToken', data.accessToken);
+                    currentToken = data.accessToken;
+                    
+                    resultDiv.innerHTML = '<div class="success">Login successful!</div>';
+                    document.getElementById('token').textContent = data.accessToken;
+                    document.getElementById('userInfo').textContent = JSON.stringify(data.user, null, 2);
+                } else {
+                    resultDiv.innerHTML = `<div class="error">Login failed: ${data.message || data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testAuthMe() {
+            const resultDiv = document.getElementById('result');
+            
+            if (!currentToken) {
+                resultDiv.innerHTML = '<div class="error">Please login first!</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:5000/auth/me', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                    },
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerHTML = '<div class="success">/auth/me endpoint works!</div>';
+                    document.getElementById('userInfo').textContent = JSON.stringify(data.user, null, 2);
+                } else {
+                    resultDiv.innerHTML = `<div class="error">/auth/me failed: ${data.message || data.error}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function goToDashboard() {
+            if (!currentToken) {
+                alert('Please login first!');
+                return;
+            }
+            window.location.href = 'http://localhost:5000';
+        }
+    </script>
+</body>
+</html>

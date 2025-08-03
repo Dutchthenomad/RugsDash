@@ -177,6 +177,7 @@ router.post('/logout-all',
  * Get current user information
  */
 router.get('/me',
+  authenticateToken,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -201,6 +202,7 @@ router.get('/me',
  * Verify if access token is valid
  */
 router.get('/verify',
+  authenticateToken,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Invalid or expired token' });

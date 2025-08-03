@@ -1053,5 +1053,12 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Switch to database storage
-export const storage = new DatabaseStorage();
+// Use in-memory storage for development when no real database is available
+const isDevelopment = process.env.NODE_ENV === 'development';
+const hasRealDatabase = process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost');
+
+export const storage = hasRealDatabase ? new DatabaseStorage() : new MemStorage();
+
+if (!hasRealDatabase && isDevelopment) {
+  console.log('📦 Using in-memory storage for development (no real database configured)');
+}
