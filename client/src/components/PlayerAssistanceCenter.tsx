@@ -291,11 +291,14 @@ export function PlayerAssistanceCenter({
 
   // Enhanced bot decision system - now using sophisticated prediction
   const evaluateBotDecision = () => {
-    if (!bot.settings.enabled || !currentOpportunity) return;
+    if (!bot.settings.enabled || !currentOpportunity || !gameState.active) return;
+    
+    // Don't place new trades if we already have an active trade
+    if (bot.currentTrade) return;
 
     const { recommendation, expectedValue, confidence, betAmount } = currentOpportunity;
 
-    // Bot uses same sophisticated analysis for decisions
+    // Bot uses same sophisticated analysis for decisions - but only place trades immediately
     if (recommendation === 'STRONG_BUY' && confidence >= bot.settings.minConfidence && expectedValue >= bot.settings.minExpectedValue) {
       executePaperTrade('BET', betAmount, 'Strong buy signal from enhanced prediction system');
     } else if (recommendation === 'BUY' && confidence >= bot.settings.minConfidence * 0.9 && expectedValue >= bot.settings.minExpectedValue * 0.8) {
@@ -304,13 +307,17 @@ export function PlayerAssistanceCenter({
   };
 
   const executePaperTrade = (action: 'BET' | 'HOLD', amount: number, reason: string) => {
-    if (!currentOpportunity) return;
+    if (!currentOpportunity || !gameState.active) return;
+    
+    // Place trade at CURRENT tick for next 40 ticks (real side bet behavior)
+    const actualStartTick = gameState.tickCount;
+    const actualEndTick = actualStartTick + 40;
 
     const trade: PaperTrade = {
       id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      gameId: `game_${gameState.tickCount}`,
-      startTick: currentOpportunity.startTick,
-      endTick: currentOpportunity.endTick,
+      gameId: gameState.gameId || `game_${gameState.tickCount}`,
+      startTick: actualStartTick,  // Current tick when bet is placed
+      endTick: actualEndTick,      // Current tick + 40
       betAmount: amount,
       payout: amount * 5,
       xPayout: 5,
@@ -331,6 +338,50 @@ export function PlayerAssistanceCenter({
 
     onTradeExecuted?.(trade);
   };
+
+  // Check if current trade should be resolved
+  useEffect(() => {
+    if (bot.currentTrade && gameState.active) {
+      const trade = bot.currentTrade;
+      
+      // Check if we passed the end tick without rugging (trade lost)
+      if (gameState.tickCount > trade.endTick) {
+        const updatedTrade = {
+          ...trade,
+          actualOutcome: 'LOSS' as const,
+          profit: -trade.betAmount
+        };
+        
+        setBot(prev => ({
+          ...prev,
+          currentTrade: null,
+          tradeHistory: [...prev.tradeHistory, updatedTrade],
+          totalProfit: prev.totalProfit - trade.betAmount
+        }));
+      }
+    }
+    
+    // Handle game ending (rug) - check if any active trade won
+    if (!gameState.active && bot.currentTrade) {
+      const trade = bot.currentTrade;
+      // Game ended - check if it was within our prediction window
+      const outcome = gameState.tickCount <= trade.endTick ? 'WIN' : 'LOSS';
+      const profit = outcome === 'WIN' ? trade.payout - trade.betAmount : -trade.betAmount;
+      
+      const updatedTrade = {
+        ...trade,
+        actualOutcome: outcome as 'WIN' | 'LOSS',
+        profit
+      };
+      
+      setBot(prev => ({
+        ...prev,
+        currentTrade: null,
+        tradeHistory: [...prev.tradeHistory, updatedTrade],
+        totalProfit: prev.totalProfit + profit
+      }));
+    }
+  }, [gameState.tickCount, gameState.active, bot.currentTrade]);
 
   // Update opportunities when game state changes
   useEffect(() => {
@@ -542,9 +593,14 @@ export function PlayerAssistanceCenter({
                     </span>
                   </div>
                   {bot.currentTrade && (
-                    <div className="text-xs text-gray-400">
-                      Side bet: {bot.currentTrade.startTick}-{bot.currentTrade.endTick} 
-                      ({bot.currentTrade.betAmount.toFixed(3)} SOL)
+                    <div className="space-y-1">
+                      <div className="text-xs text-gray-400">
+                        Side bet: {bot.currentTrade.startTick}-{bot.currentTrade.endTick} 
+                        ({bot.currentTrade.betAmount.toFixed(3)} SOL)
+                      </div>
+                      <div className="text-xs text-accent-blue">
+                        Current: {gameState.tickCount} | {bot.currentTrade.endTick - gameState.tickCount} ticks remaining
+                      </div>
                     </div>
                   )}
                 </div>
