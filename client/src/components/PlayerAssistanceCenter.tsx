@@ -465,52 +465,67 @@ export function PlayerAssistanceCenter({
     }
   };
 
-  if (!gameState.active) {
-    return (
-      <Card className="bg-card-bg border-gray-700">
-        <CardContent className="p-8 text-center">
-          <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-400 mb-2">Waiting for Next Game</h2>
-          <p className="text-gray-500">Side bet opportunities will appear when the game starts</p>
-          
-          {/* Background Bot Status */}
-          <div className="mt-6 p-4 bg-dark-bg rounded-lg border border-gray-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Bot className="h-4 w-4 text-accent-blue" />
-                <span className="text-sm font-medium">Paper Trading Bot</span>
-              </div>
-              <Switch
-                checked={bot.settings.enabled}
-                onCheckedChange={(enabled) => setBot(prev => ({
-                  ...prev,
-                  settings: { ...prev.settings, enabled }
-                }))}
-              />
-            </div>
-            {bot.settings.enabled && (
-              <div className="mt-2 text-xs text-gray-400 grid grid-cols-2 gap-4">
-                <div>Accuracy: {stats.accuracy}%</div>
-                <div>Profit: {stats.profit > 0 ? '+' : ''}{stats.profit.toFixed(3)} SOL</div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // Game status indicator but keep dashboard visible
+  const gameStatusMessage = !gameState.active ? 
+    "⏳ Waiting for next game - side bet opportunities will appear when game starts" : 
+    null;
 
   return (
     <div className="space-y-6">
+      {/* Bot Position Status - PROMINENT when active */}
+      {bot.currentTrade && (
+        <Card className="bg-gradient-to-r from-accent-blue/20 to-crypto-green/20 border-accent-blue border-2">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <Bot className="h-6 w-6 text-accent-blue" />
+                  <span className="text-xl font-bold text-white">ACTIVE SIDE BET</span>
+                </div>
+                <Badge className="bg-accent-blue text-white px-3 py-1 text-sm font-bold">
+                  IN POSITION
+                </Badge>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-crypto-green">
+                  {bot.currentTrade.betAmount.toFixed(3)} SOL
+                </div>
+                <div className="text-sm text-gray-300">Bet Amount</div>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-4">
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-gray-600">
+                <div className="text-xl font-bold text-accent-blue">
+                  {bot.currentTrade.startTick}-{bot.currentTrade.endTick}
+                </div>
+                <div className="text-sm text-gray-300">Tick Range</div>
+              </div>
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-gray-600">
+                <div className="text-xl font-bold text-yellow-500">
+                  {gameState.active ? Math.max(0, bot.currentTrade.endTick - gameState.tickCount) : 'Game Ended'}
+                </div>
+                <div className="text-sm text-gray-300">Ticks Remaining</div>
+              </div>
+              <div className="text-center p-3 bg-dark-bg/50 rounded border border-gray-600">
+                <div className="text-xl font-bold text-crypto-green">
+                  {(bot.currentTrade.payout).toFixed(3)} SOL
+                </div>
+                <div className="text-sm text-gray-300">Potential Payout</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Hero Section - Current Side Bet Opportunity */}
       <Card className="bg-card-bg border-gray-700">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-xl font-bold flex items-center">
               <Target className="h-5 w-5 mr-2 text-accent-blue" />
-              Side Bet Opportunity - Tick {gameState.tickCount}
+              {gameState.active ? `Side Bet Opportunity - Tick ${gameState.tickCount}` : 'Game Between Rounds'}
             </CardTitle>
-            {currentOpportunity && (
+            {currentOpportunity && gameState.active && (
               <Badge className={getRecommendationColor(currentOpportunity.recommendation)}>
                 {currentOpportunity.recommendation.replace('_', ' ')}
               </Badge>
@@ -518,6 +533,12 @@ export function PlayerAssistanceCenter({
           </div>
         </CardHeader>
         <CardContent>
+          {gameStatusMessage && (
+            <div className="text-center p-4 bg-dark-bg rounded-lg border border-gray-700 mb-4">
+              <Clock className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+              <div className="text-lg text-gray-300">{gameStatusMessage}</div>
+            </div>
+          )}
           {currentOpportunity ? (
             <div className="space-y-4">
               {/* Main Opportunity Display */}
@@ -574,10 +595,15 @@ export function PlayerAssistanceCenter({
                 </div>
               )}
             </div>
-          ) : (
+          ) : gameState.active ? (
             <div className="text-center text-gray-400">
               <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
               <div>Evaluating opportunity...</div>
+            </div>
+          ) : (
+            <div className="text-center text-gray-400">
+              <Clock className="h-8 w-8 mx-auto mb-2" />
+              <div>No opportunities available - game not active</div>
             </div>
           )}
         </CardContent>
@@ -590,7 +616,7 @@ export function PlayerAssistanceCenter({
           <CardHeader>
             <CardTitle className="text-lg font-bold flex items-center">
               <Bot className="h-4 w-4 mr-2 text-accent-blue" />
-              Paper Trading Monitor
+              Paper Trading Bot
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -609,22 +635,11 @@ export function PlayerAssistanceCenter({
               {bot.settings.enabled && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Current Status:</span>
-                    <span className={bot.currentTrade ? 'text-accent-blue' : 'text-crypto-green'}>
-                      {bot.currentTrade ? 'In Position' : 'Monitoring'}
+                    <span className="text-gray-400">Status:</span>
+                    <span className={bot.currentTrade ? 'text-accent-blue font-bold' : 'text-crypto-green'}>
+                      {bot.currentTrade ? '🎯 IN POSITION' : '👁️ MONITORING'}
                     </span>
                   </div>
-                  {bot.currentTrade && (
-                    <div className="space-y-1">
-                      <div className="text-xs text-gray-400">
-                        Side bet: {bot.currentTrade.startTick}-{bot.currentTrade.endTick} 
-                        ({bot.currentTrade.betAmount.toFixed(3)} SOL)
-                      </div>
-                      <div className="text-xs text-accent-blue">
-                        Current: {gameState.tickCount} | {bot.currentTrade.endTick - gameState.tickCount} ticks remaining
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
