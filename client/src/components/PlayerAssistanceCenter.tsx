@@ -293,6 +293,7 @@ export function PlayerAssistanceCenter({
       gameId: gameState.gameId || `game_${gameState.tickCount}`,
       startTick: actualStartTick,
       endTick: actualEndTick,
+      betTick: actualStartTick,
       betAmount: amount,
       payout: amount * 5,
       xPayout: 5,
@@ -396,8 +397,8 @@ export function PlayerAssistanceCenter({
           method: 'POST',
           body: { gameId: gameState.gameId }
         }).then(() => {
-          setCurrentGameId(gameState.gameId);
-          setLastProcessedGameId(gameState.gameId);
+          setCurrentGameId(gameState.gameId || null);
+          setLastProcessedGameId(gameState.gameId || null);
         }).catch(console.warn);
       }, 200);
       

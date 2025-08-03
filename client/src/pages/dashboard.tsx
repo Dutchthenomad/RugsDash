@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WebSocketClient } from '../lib/websocketClient';
+import { AuthenticatedWebSocketClient } from '../lib/authenticatedWebSocket';
 import { AdaptivePredictionEngine } from '../lib/predictionEngine';
 import { ConnectionStatus } from '../components/ConnectionStatus';
 import { PlayerAssistanceCenter } from '../components/PlayerAssistanceCenter';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, Settings } from 'lucide-react';
+import { BarChart3, Settings, LogOut, User, Shield } from 'lucide-react';
 import { 
   GameStateData, 
   ConnectionStatus as ConnectionStatusType,
@@ -21,13 +23,20 @@ import {
 } from '../types/gameState';
 
 export default function Dashboard() {
+  // Authentication context
+  const { user, logout, accessToken, hasRole } = useAuth();
+  
   // Core state - using useRef to prevent recreation
   const wsClientRef = useRef<WebSocketClient | null>(null);
+  const authWsClientRef = useRef<AuthenticatedWebSocketClient | null>(null);
   const predictionEngineRef = useRef<AdaptivePredictionEngine | null>(null);
   
   // Initialize once
   if (!wsClientRef.current) {
     wsClientRef.current = new WebSocketClient();
+  }
+  if (!authWsClientRef.current) {
+    authWsClientRef.current = new AuthenticatedWebSocketClient();
   }
   if (!predictionEngineRef.current) {
     predictionEngineRef.current = new AdaptivePredictionEngine();
@@ -35,6 +44,11 @@ export default function Dashboard() {
   
   // Component state
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusType>({
+    status: 'DISCONNECTED',
+    reconnectAttempts: 0
+  });
+  
+  const [authConnectionStatus, setAuthConnectionStatus] = useState<ConnectionStatusType>({
     status: 'DISCONNECTED',
     reconnectAttempts: 0
   });
@@ -162,11 +176,29 @@ export default function Dashboard() {
   // Initialize WebSocket connections with proper cleanup
   useEffect(() => {
     const wsClient = wsClientRef.current;
-    if (!wsClient) return;
+    const authWsClient = authWsClientRef.current;
+    if (!wsClient || !authWsClient) return;
 
-    // Set up event handlers
+    // Set up rugs.fun WebSocket (external)
     wsClient.onConnectionChange(setConnectionStatus);
     wsClient.onGameState(handleGameStateUpdate);
+    
+    // Set up authenticated WebSocket (internal)
+    if (accessToken) {
+      authWsClient.setAccessToken(accessToken);
+      authWsClient.onConnectionChange(setAuthConnectionStatus);
+      authWsClient.onAuthenticated((user) => {
+        console.log('Authenticated WebSocket connected for user:', user.username);
+      });
+      authWsClient.onErrorReceived((error) => {
+        console.error('Authenticated WebSocket error:', error);
+      });
+      authWsClient.onMessageReceived((message) => {
+        console.log('Authenticated WebSocket message:', message);
+        // Handle internal messages here
+      });
+      authWsClient.connect();
+    }
     
     // Cleanup function
     return () => {
@@ -174,8 +206,10 @@ export default function Dashboard() {
       wsClient.onConnectionChange(() => {});
       wsClient.onGameState(() => {});
       wsClient.disconnect();
+      
+      authWsClient.destroy();
     };
-  }, [handleGameStateUpdate]);
+  }, [handleGameStateUpdate, accessToken]);
 
   // Cleanup prediction engine on unmount
   useEffect(() => {
@@ -223,6 +257,37 @@ export default function Dashboard() {
           
           {/* Controls */}
           <div className="flex items-center space-x-3">
+            {/* Auth Connection Status */}
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${
+                authConnectionStatus.status === 'CONNECTED' ? 'bg-green-500' : 
+                authConnectionStatus.status === 'RECONNECTING' ? 'bg-yellow-500' : 'bg-red-500'
+              }`} />
+              <span className="text-xs text-gray-400">
+                {authConnectionStatus.status === 'CONNECTED' ? 'Auth Connected' : 
+                 authConnectionStatus.status === 'RECONNECTING' ? 'Auth Reconnecting' : 'Auth Disconnected'}
+              </span>
+            </div>
+
+            {/* User Info */}
+            <div className="flex items-center space-x-2 px-3 py-1 bg-slate-700/50 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <User className="h-4 w-4 text-blue-400" />
+                <span className="text-sm font-medium text-white">{user?.username}</span>
+                {hasRole('admin') && (
+                  <div title="Admin">
+                    <Shield className="h-3 w-3 text-yellow-500" />
+                  </div>
+                )}
+              </div>
+              <Badge 
+                variant="outline" 
+                className="text-xs text-blue-400 border-blue-400"
+              >
+                {user?.role}
+              </Badge>
+            </div>
+
             <Button 
               onClick={() => setShowAdvanced(!showAdvanced)}
               variant="outline"
@@ -232,12 +297,24 @@ export default function Dashboard() {
               <Settings className="h-4 w-4 mr-1" />
               {showAdvanced ? 'Simple' : 'Advanced'}
             </Button>
+
             <Badge 
               variant="outline" 
               className={`${gameState.active ? 'text-crypto-green border-crypto-green' : 'text-gray-400 border-gray-400'}`}
             >
               {gameState.active ? 'LIVE' : 'WAITING'}
             </Badge>
+
+            {/* Logout Button */}
+            <Button 
+              onClick={logout}
+              variant="outline"
+              size="sm"
+              className="border-red-600 text-red-400 hover:bg-red-600 hover:text-white"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>

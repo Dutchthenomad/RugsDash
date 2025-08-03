@@ -146,6 +146,8 @@ export class MemStorage implements IStorage {
     const user: User = { 
       ...insertUser, 
       id,
+      email: insertUser.email || null,
+      role: insertUser.role || 'user',
       isActive: true,
       lastLogin: null,
       createdAt: now,
@@ -185,6 +187,8 @@ export class MemStorage implements IStorage {
     const token: RefreshToken = {
       ...insertToken,
       id,
+      deviceInfo: insertToken.deviceInfo || null,
+      isRevoked: insertToken.isRevoked || false,
       createdAt: new Date(),
     };
     this.refreshTokens.set(insertToken.token, token);

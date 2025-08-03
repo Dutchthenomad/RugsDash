@@ -423,3 +423,54 @@ export const optionalAuth = async (
     next();
   }
 };
+
+/**
+ * WebSocket authentication function
+ * Authenticates WebSocket connections using JWT tokens
+ */
+export const authenticateWebSocket = async (token: string): Promise<JWTPayload | null> => {
+  try {
+    if (!token) {
+      return null;
+    }
+
+    const payload = await AuthService.verifyAccessToken(token);
+    
+    // Verify user still exists and is active
+    const user = await storage.getUser(payload.userId);
+    if (!user || !user.isActive) {
+      return null;
+    }
+
+    return payload;
+  } catch (error) {
+    return null;
+  }
+};
+
+/**
+ * Extract token from WebSocket request
+ * Supports both query parameter and header-based authentication
+ */
+export const extractWebSocketToken = (req: any): string | null => {
+  // Try query parameter first (ws://localhost?token=...)
+  if (req.url) {
+    const url = new URL(req.url, 'http://localhost');
+    const token = url.searchParams.get('token');
+    if (token) return token;
+  }
+
+  // Try Authorization header
+  const authHeader = req.headers?.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.split(' ')[1];
+  }
+
+  // Try custom header (for browsers that support it)
+  const token = req.headers?.['sec-websocket-protocol'];
+  if (token && token.startsWith('access_token, ')) {
+    return token.replace('access_token, ', '');
+  }
+
+  return null;
+};

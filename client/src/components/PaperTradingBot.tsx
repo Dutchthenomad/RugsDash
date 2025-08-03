@@ -145,15 +145,18 @@ export function PaperTradingBot({ prediction, gameState, onTradeExecuted }: Pape
       const newTrade: PaperTrade = {
         id: `trade_${Date.now()}`,
         gameId: gameState.gameId || `game_${Date.now()}`,
+        startTick: gameState.tickCount,
+        endTick: gameState.tickCount + 40,
         betTick: gameState.tickCount,
-        exitTick: 0,
         betAmount,
+        payout: betAmount * 5,
         probability: prediction.rugProbability,
         expectedValue: prediction.expectedValue,
         actualOutcome: 'PENDING',
         profit: 0,
         confidence: prediction.confidence,
         zone: prediction.zone.name,
+        xPayout: 5,
         timestamp: new Date()
       };
 

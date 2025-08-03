@@ -97,6 +97,7 @@ export interface PaperTrade {
   gameId: string;
   startTick: number;  // When side bet window starts
   endTick: number;    // When side bet window ends (startTick + 40)
+  betTick: number;    // Tick when bet was placed
   betAmount: number;
   payout: number;     // Total payout if win (betAmount * 5)
   probability: number;

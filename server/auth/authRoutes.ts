@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AuthService, AuthenticatedRequest } from './authService';
+import { AuthService, AuthenticatedRequest, authenticateToken } from './authService';
 import { validateRequest } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { z } from 'zod';
@@ -222,12 +222,13 @@ router.get('/verify',
  * Change user password (requires authentication)
  */
 router.post('/change-password',
-  z.object({
+  authenticateToken,
+  validateRequest(z.object({
     body: z.object({
       currentPassword: z.string().min(1),
       newPassword: z.string().min(6).max(100),
     }),
-  }),
+  })),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });

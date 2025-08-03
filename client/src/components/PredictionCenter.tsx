@@ -863,6 +863,7 @@ export function PredictionCenter({
         gameId: currentGameId,
         startTick: gameState.tickCount,
         endTick: gameState.tickCount + 40,  // 40-tick window like real side bets
+        betTick: gameState.tickCount,
         betAmount,
         payout: betAmount * 5,  // 5:1 payout like real side bets
         probability: prediction.rugProbability,

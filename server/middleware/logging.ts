@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { requestLogger, performanceLogger } from '../utils/logger';
+import type { AuthenticatedRequest } from '../auth/authService';
 
 // Request logging middleware
 export const logRequest = (req: Request, res: Response, next: NextFunction) => {
@@ -17,7 +18,7 @@ export const logRequest = (req: Request, res: Response, next: NextFunction) => {
     ip: req.ip,
     userAgent: req.get('user-agent'),
     referer: req.get('referer'),
-    ...(req.user && { userId: (req.user as any).id }),
+    ...((req as AuthenticatedRequest).user && { userId: ((req as AuthenticatedRequest).user as any).userId }),
   });
   
   // Capture response
