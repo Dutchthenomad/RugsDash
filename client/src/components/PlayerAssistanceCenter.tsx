@@ -77,6 +77,21 @@ export function PlayerAssistanceCenter({
     roi: 0
   });
 
+  // Reset bot state function
+  const resetBotState = () => {
+    setBot(prev => ({
+      ...prev,
+      currentTrade: null,
+      tradeHistory: [],
+      totalProfit: 0,
+      totalTrades: 0,
+      winRate: 0,
+      averageProfit: 0,
+      maxDrawdown: 0,
+      currentStreak: { type: 'WIN', count: 0 }
+    }));
+  };
+
   // Current side bet opportunity state
   const [currentOpportunity, setCurrentOpportunity] = useState<{
     available: boolean;
@@ -332,8 +347,7 @@ export function PlayerAssistanceCenter({
 
     setBot(prev => ({
       ...prev,
-      currentTrade: trade,
-      totalTrades: prev.totalTrades + 1
+      currentTrade: trade
     }));
 
     onTradeExecuted?.(trade);
@@ -352,12 +366,16 @@ export function PlayerAssistanceCenter({
           profit: -trade.betAmount
         };
         
-        setBot(prev => ({
-          ...prev,
-          currentTrade: null,
-          tradeHistory: [...prev.tradeHistory, updatedTrade],
-          totalProfit: prev.totalProfit - trade.betAmount
-        }));
+        setBot(prev => {
+          const newTradeHistory = [...prev.tradeHistory, updatedTrade];
+          return {
+            ...prev,
+            currentTrade: null,
+            tradeHistory: newTradeHistory,
+            totalTrades: newTradeHistory.length,
+            totalProfit: prev.totalProfit - trade.betAmount
+          };
+        });
       }
     }
     
@@ -374,12 +392,16 @@ export function PlayerAssistanceCenter({
         profit
       };
       
-      setBot(prev => ({
-        ...prev,
-        currentTrade: null,
-        tradeHistory: [...prev.tradeHistory, updatedTrade],
-        totalProfit: prev.totalProfit + profit
-      }));
+      setBot(prev => {
+        const newTradeHistory = [...prev.tradeHistory, updatedTrade];
+        return {
+          ...prev,
+          currentTrade: null,
+          tradeHistory: newTradeHistory,
+          totalTrades: newTradeHistory.length,
+          totalProfit: prev.totalProfit + profit
+        };
+      });
     }
   }, [gameState.tickCount, gameState.active, bot.currentTrade]);
 
@@ -624,13 +646,13 @@ export function PlayerAssistanceCenter({
                 <div className="text-xs text-gray-400">Accuracy</div>
               </div>
               <div className="text-center">
-                <div className={`text-xl font-bold ${stats.profit >= 0 ? 'text-crypto-green' : 'text-alert-red'}`}>
-                  {stats.profit > 0 ? '+' : ''}{stats.profit.toFixed(2)}
+                <div className={`text-xl font-bold ${bot.totalProfit >= 0 ? 'text-crypto-green' : 'text-alert-red'}`}>
+                  {bot.totalProfit > 0 ? '+' : ''}{bot.totalProfit.toFixed(2)}
                 </div>
                 <div className="text-xs text-gray-400">Total P&L (SOL)</div>
               </div>
               <div className="text-center">
-                <div className="text-xl font-bold text-accent-blue">{bot.totalTrades}</div>
+                <div className="text-xl font-bold text-accent-blue">{bot.tradeHistory.length}</div>
                 <div className="text-xs text-gray-400">Total Bets</div>
               </div>
               <div className="text-center">
