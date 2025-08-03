@@ -146,108 +146,99 @@ export function PredictionCenter({
     return <Play className="h-4 w-4" />;
   };
 
-  // Bot decision making logic
+  // Bot decision making logic (throttled to prevent seizure effects)
   useEffect(() => {
-    if (!bot.settings.enabled || !gameState.active) {
-      if (!bot.currentTrade) {
+    // Throttle bot decisions to prevent rapid firing
+    const timeoutId = setTimeout(() => {
+      if (!bot.settings.enabled || !gameState.active) {
+        return;
+      }
+
+      const shouldEnterTrade = !bot.currentTrade && 
+        prediction.confidence >= bot.settings.minConfidence &&
+        prediction.expectedValue >= bot.settings.minExpectedValue &&
+        prediction.zone.name !== 'AVOID';
+
+      const shouldExitTrade = bot.currentTrade && (
+        prediction.rugProbability >= bot.settings.autoExitThreshold ||
+        prediction.zone.name === 'AVOID'
+      );
+
+      if (shouldEnterTrade) {
+        const betAmount = Math.min(
+          bot.settings.maxBetSize,
+          calculateOptimalBetSize(prediction.expectedValue, prediction.confidence)
+        );
+
+        const newTrade: PaperTrade = {
+          id: `trade_${Date.now()}`,
+          gameId: gameState.gameId || `game_${Date.now()}`,
+          betTick: gameState.tickCount,
+          exitTick: 0,
+          betAmount,
+          probability: prediction.rugProbability,
+          expectedValue: prediction.expectedValue,
+          actualOutcome: 'PENDING',
+          profit: 0,
+          confidence: prediction.confidence,
+          zone: prediction.zone.name,
+          timestamp: new Date()
+        };
+
+        setBot(prev => ({
+          ...prev,
+          currentTrade: newTrade
+        }));
+
         setLastDecision({
-          action: 'HOLD',
-          reason: 'Bot disabled or game inactive',
+          action: 'BET',
+          reason: `EV: ${prediction.expectedValue.toFixed(3)}, Conf: ${(prediction.confidence * 100).toFixed(0)}%`,
+          timestamp: Date.now()
+        });
+
+        if (onTradeExecuted) {
+          onTradeExecuted(newTrade);
+        }
+      } else if (shouldExitTrade && bot.currentTrade) {
+        const exitedTrade = {
+          ...bot.currentTrade,
+          exitTick: gameState.tickCount,
+          actualOutcome: 'LOSS' as const,
+          profit: -bot.currentTrade.betAmount
+        };
+
+        setBot(prev => {
+          const newHistory = [...prev.tradeHistory, exitedTrade];
+          const newTotalProfit = prev.totalProfit - exitedTrade.betAmount;
+          const stats = calculateTradeStats(newHistory, newTotalProfit, prev.bankroll);
+          return {
+            ...prev,
+            currentTrade: null,
+            tradeHistory: newHistory,
+            totalProfit: newTotalProfit,
+            totalTrades: prev.totalTrades + 1,
+            winRate: stats.winRate,
+            averageProfit: stats.averageProfit,
+            maxDrawdown: stats.maxDrawdown,
+            currentStreak: stats.currentStreak,
+            roi: stats.roi
+          };
+        });
+
+        setLastDecision({
+          action: 'EXIT',
+          reason: `Risk too high: ${(prediction.rugProbability * 100).toFixed(0)}%`,
           timestamp: Date.now()
         });
       }
-      return;
-    }
+    }, 500); // 500ms throttle
 
-    const shouldEnterTrade = !bot.currentTrade && 
-      prediction.confidence >= bot.settings.minConfidence &&
-      prediction.expectedValue >= bot.settings.minExpectedValue &&
-      prediction.zone.name !== 'AVOID';
-
-    const shouldExitTrade = bot.currentTrade && (
-      prediction.rugProbability >= bot.settings.autoExitThreshold ||
-      prediction.zone.name === 'AVOID'
-    );
-
-    if (shouldEnterTrade) {
-      const betAmount = Math.min(
-        bot.settings.maxBetSize,
-        calculateOptimalBetSize(prediction.expectedValue, prediction.confidence)
-      );
-
-      const newTrade: PaperTrade = {
-        id: `trade_${Date.now()}`,
-        gameId: gameState.gameId || `game_${Date.now()}`,
-        betTick: gameState.tickCount,
-        exitTick: 0,
-        betAmount,
-        probability: prediction.rugProbability,
-        expectedValue: prediction.expectedValue,
-        actualOutcome: 'PENDING',
-        profit: 0,
-        confidence: prediction.confidence,
-        zone: prediction.zone.name,
-        timestamp: new Date()
-      };
-
-      setBot(prev => ({
-        ...prev,
-        currentTrade: newTrade
-      }));
-
-      setLastDecision({
-        action: 'BET',
-        reason: `EV: ${prediction.expectedValue.toFixed(3)}, Conf: ${(prediction.confidence * 100).toFixed(0)}%`,
-        timestamp: Date.now()
-      });
-
-      if (onTradeExecuted) {
-        onTradeExecuted(newTrade);
-      }
-    } else if (shouldExitTrade && bot.currentTrade) {
-      const exitedTrade = {
-        ...bot.currentTrade,
-        exitTick: gameState.tickCount,
-        actualOutcome: 'LOSS' as const,
-        profit: -bot.currentTrade.betAmount
-      };
-
-      setBot(prev => {
-        const newHistory = [...prev.tradeHistory, exitedTrade];
-        const newTotalProfit = prev.totalProfit - exitedTrade.betAmount;
-        const stats = calculateTradeStats(newHistory, newTotalProfit, prev.bankroll);
-        return {
-          ...prev,
-          currentTrade: null,
-          tradeHistory: newHistory,
-          totalProfit: newTotalProfit,
-          totalTrades: prev.totalTrades + 1,
-          winRate: stats.winRate,
-          averageProfit: stats.averageProfit,
-          maxDrawdown: stats.maxDrawdown,
-          currentStreak: stats.currentStreak,
-          roi: stats.roi
-        };
-      });
-
-      setLastDecision({
-        action: 'EXIT',
-        reason: `Risk too high: ${(prediction.rugProbability * 100).toFixed(0)}%`,
-        timestamp: Date.now()
-      });
-    } else {
-      setLastDecision({
-        action: 'HOLD',
-        reason: bot.currentTrade ? 'Monitoring position' : 'Waiting for signal',
-        timestamp: Date.now()
-      });
-    }
-  }, [prediction.confidence, prediction.expectedValue, prediction.rugProbability, prediction.zone.name, 
-      gameState.active, gameState.tickCount, gameState.gameId, 
-      bot.settings.enabled, bot.settings.minConfidence, bot.settings.minExpectedValue, bot.settings.autoExitThreshold, bot.settings.maxBetSize,
+    return () => clearTimeout(timeoutId);
+  }, [bot.settings.enabled, gameState.active, gameState.tickCount, 
+      prediction.zone.name, prediction.confidence, prediction.expectedValue, 
       bot.currentTrade?.id]);
 
-  // Handle game end
+  // Handle game end (simplified dependencies)
   useEffect(() => {
     if (!gameState.active && bot.currentTrade) {
       const isWin = gameState.tickCount > bot.currentTrade.betTick + 20;
@@ -277,8 +268,14 @@ export function PredictionCenter({
           roi: stats.roi
         };
       });
+
+      setLastDecision({
+        action: 'HOLD',
+        reason: `Game ended - ${isWin ? 'WIN' : 'LOSS'} (${profit.toFixed(3)} SOL)`,
+        timestamp: Date.now()
+      });
     }
-  }, [gameState.active, gameState.tickCount, bot.currentTrade?.id]);
+  }, [gameState.active]);
 
   const calculateOptimalBetSize = (expectedValue: number, confidence: number): number => {
     const kelly = expectedValue * confidence * 0.2; // Conservative Kelly sizing
@@ -409,20 +406,22 @@ export function PredictionCenter({
               </div>
             )}
 
-            {/* Last Decision */}
-            {lastDecision && (
+            {/* Last Decision - Stable display */}
+            {bot.settings.enabled && (
               <div className="mt-3 bg-gray-700/50 p-2 rounded">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-300">{lastDecision.reason}</span>
+                  <span className="text-xs text-gray-300">
+                    {bot.currentTrade ? 'Position Active' : 
+                     gameState.active ? 'Monitoring...' : 'Waiting for next game'}
+                  </span>
                   <Badge 
                     variant="outline" 
                     className={`text-xs ${
-                      lastDecision.action === 'BET' ? 'text-crypto-green border-crypto-green' :
-                      lastDecision.action === 'EXIT' ? 'text-alert-red border-alert-red' :
-                      'text-accent-blue border-accent-blue'
+                      bot.currentTrade ? 'text-accent-blue border-accent-blue' :
+                      'text-crypto-green border-crypto-green'
                     }`}
                   >
-                    {lastDecision.action}
+                    {bot.currentTrade ? 'ACTIVE' : 'SCANNING'}
                   </Badge>
                 </div>
               </div>
