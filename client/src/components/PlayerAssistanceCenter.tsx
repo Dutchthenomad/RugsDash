@@ -102,14 +102,19 @@ export function PlayerAssistanceCenter({
   const [qLearning, setQLearning] = useState<{
     recommendation: QLearningRecommendation | null;
     stats: QLearningStats | null;
+    analytics: any;
     isEnabled: boolean;
     lastUpdate: Date | null;
   }>({
     recommendation: null,
     stats: null,
+    analytics: null,
     isEnabled: true,
     lastUpdate: null
   });
+
+  // Dev menu state
+  const [showDevMenu, setShowDevMenu] = useState(false);
 
   // Clear game bets when new game starts
   useEffect(() => {
@@ -391,19 +396,22 @@ export function PlayerAssistanceCenter({
     }
   }, [gameState.active, currentGameId, gameState.tickCount]);
 
-  // Load Q-learning stats periodically
+  // Load Q-learning stats and analytics periodically
   useEffect(() => {
-    const loadQLearningStats = async () => {
+    const loadQLearningData = async () => {
       try {
-        const stats = await apiRequest('/api/qlearning/stats');
-        setQLearning(prev => ({ ...prev, stats }));
+        const [stats, analytics] = await Promise.all([
+          apiRequest('/api/qlearning/stats'),
+          apiRequest('/api/qlearning/analytics')
+        ]);
+        setQLearning(prev => ({ ...prev, stats, analytics }));
       } catch (error) {
-        console.warn('Failed to load Q-learning stats:', error);
+        console.warn('Failed to load Q-learning data:', error);
       }
     };
 
-    loadQLearningStats();
-    const interval = setInterval(loadQLearningStats, 30000); // Every 30 seconds
+    loadQLearningData();
+    const interval = setInterval(loadQLearningData, 15000); // Every 15 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -481,10 +489,20 @@ export function PlayerAssistanceCenter({
             <span className="text-lg font-bold text-white">
               {bot.settings.enabled ? '🤖 BOT ACTIVE' : '😴 BOT OFF'}
             </span>
-            {qLearning.isEnabled && qLearning.stats?.isTraining && (
-              <div className="flex items-center space-x-1">
-                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-                <span className="text-sm text-blue-400 font-bold">AI LEARNING</span>
+            {qLearning.isEnabled && (
+              <div className="flex items-center space-x-2">
+                <div className={`w-3 h-3 rounded-full animate-pulse ${
+                  qLearning.stats?.isTraining ? 'bg-blue-500' : 'bg-green-500'
+                }`}></div>
+                <span className="text-sm text-blue-400 font-bold">
+                  {qLearning.stats?.isTraining ? 'AI LEARNING' : 'AI READY'}
+                </span>
+                <button
+                  onClick={() => setShowDevMenu(!showDevMenu)}
+                  className="text-xs bg-blue-600/20 border border-blue-500 px-2 py-1 rounded text-blue-300 hover:bg-blue-600/40 transition-colors"
+                >
+                  DEV
+                </button>
               </div>
             )}
           </div>
@@ -580,6 +598,238 @@ export function PlayerAssistanceCenter({
           )}
         </div>
       </div>
+      {/* Q-Learning Dev Menu */}
+      {showDevMenu && qLearning.isEnabled && (
+        <div className="bg-blue-900/30 border-2 border-blue-500 rounded-lg p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-bold text-blue-300">🤖 Q-Learning Analytics</h3>
+            <button
+              onClick={() => setShowDevMenu(false)}
+              className="text-blue-400 hover:text-blue-200 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Current Status */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-blue-800/40 rounded-lg p-4">
+              <h4 className="text-lg font-bold text-blue-200 mb-3">🎯 Current Performance</h4>
+              {qLearning.stats ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Training:</span>
+                    <span className={qLearning.stats.isTraining ? 'text-green-400' : 'text-yellow-400'}>
+                      {qLearning.stats.isTraining ? 'ACTIVE' : 'INACTIVE'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Episode:</span>
+                    <span className="text-white font-bold">{qLearning.stats.stats.episodeNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Exploration Rate:</span>
+                    <span className="text-blue-300">{(qLearning.stats.stats.explorationRate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">States Learned:</span>
+                    <span className="text-purple-300">{qLearning.stats.stats.totalStates}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Q-Values:</span>
+                    <span className="text-cyan-300">{qLearning.stats.stats.totalQValues}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Active Bets:</span>
+                    <span className="text-yellow-300">{qLearning.stats.activeBets}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-gray-400">Loading stats...</div>
+              )}
+            </div>
+
+            <div className="bg-green-800/40 rounded-lg p-4">
+              <h4 className="text-lg font-bold text-green-200 mb-3">📊 Recent Performance</h4>
+              {qLearning.stats?.recentPerformance ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Win Rate:</span>
+                    <span className={`font-bold ${
+                      qLearning.stats.recentPerformance.winRate > 0.5 ? 'text-green-400' : 
+                      qLearning.stats.recentPerformance.winRate > 0.3 ? 'text-yellow-400' : 'text-red-400'
+                    }`}>
+                      {(qLearning.stats.recentPerformance.winRate * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Total Profit:</span>
+                    <span className={`font-bold ${
+                      qLearning.stats.recentPerformance.totalProfit > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {qLearning.stats.recentPerformance.totalProfit.toFixed(4)} SOL
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Total Bets:</span>
+                    <span className="text-white">{qLearning.stats.recentPerformance.totalBets}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Avg Profit/Bet:</span>
+                    <span className={`font-bold ${
+                      qLearning.stats.recentPerformance.avgProfit > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {qLearning.stats.recentPerformance.avgProfit.toFixed(4)} SOL
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-gray-400">No performance data yet</div>
+              )}
+            </div>
+          </div>
+
+          {/* Learning Progress */}
+          {qLearning.analytics && (
+            <div className="bg-purple-800/40 rounded-lg p-4">
+              <h4 className="text-lg font-bold text-purple-200 mb-3">🧠 Learning Progress</h4>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-white">
+                    {qLearning.analytics.learning?.totalEpisodes || 0}
+                  </div>
+                  <div className="text-purple-300">Total Episodes</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${
+                    (qLearning.analytics.learning?.avgEpisodeReward || 0) > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {(qLearning.analytics.learning?.avgEpisodeReward || 0).toFixed(3)}
+                  </div>
+                  <div className="text-purple-300">Avg Episode Reward</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-lg font-bold ${
+                    qLearning.analytics.learning?.improvementTrend === 'IMPROVING' ? 'text-green-400' : 
+                    qLearning.analytics.learning?.improvementTrend === 'STABLE' ? 'text-yellow-400' : 'text-gray-400'
+                  }`}>
+                    {qLearning.analytics.learning?.improvementTrend || 'UNKNOWN'}
+                  </div>
+                  <div className="text-purple-300">Learning Trend</div>
+                </div>
+              </div>
+              
+              {qLearning.analytics.exploration && (
+                <div className="mt-4 pt-4 border-t border-purple-500/30">
+                  <div className="flex justify-between items-center">
+                    <span className="text-purple-200">State Space Exploration:</span>
+                    <span className={`font-bold ${
+                      qLearning.analytics.exploration.explorationHealth === 'GOOD' ? 'text-green-400' : 'text-yellow-400'
+                    }`}>
+                      {qLearning.analytics.exploration.explorationHealth}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {qLearning.analytics.exploration.totalStates} states, {qLearning.analytics.exploration.avgVisitCount.toFixed(1)} avg visits
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Current Recommendation Debug */}
+          {qLearning.recommendation && (
+            <div className="bg-cyan-800/40 rounded-lg p-4">
+              <h4 className="text-lg font-bold text-cyan-200 mb-3">🎯 Current AI Recommendation</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-300">Action:</span>
+                    <span className="font-bold text-white">{qLearning.recommendation.action}</span>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-300">Confidence:</span>
+                    <span className="text-cyan-300">{(qLearning.recommendation.confidence * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-300">Q-Value:</span>
+                    <span className={`font-bold ${
+                      qLearning.recommendation.qValue > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {qLearning.recommendation.qValue.toFixed(4)}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-300">Expected Value:</span>
+                    <span className={`font-bold ${
+                      qLearning.recommendation.expectedValue > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {qLearning.recommendation.expectedValue.toFixed(4)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-300">Bet Amount:</span>
+                    <span className="text-yellow-300">{qLearning.recommendation.betAmount?.toFixed(4) || '0'} SOL</span>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-300">Learning:</span>
+                    <span className={qLearning.recommendation.isLearning ? 'text-green-400' : 'text-gray-400'}>
+                      {qLearning.recommendation.isLearning ? 'YES' : 'NO'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 p-2 bg-black/20 rounded text-xs text-gray-300">
+                <strong>Reasoning:</strong> {qLearning.recommendation.reasoning}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="flex space-x-2">
+            <button
+              onClick={() => {
+                apiRequest('/api/qlearning/training', {
+                  method: 'POST',
+                  body: { enabled: !qLearning.stats?.isTraining }
+                }).then(() => {
+                  // Reload stats after toggle
+                  setTimeout(() => {
+                    apiRequest('/api/qlearning/stats').then(stats => {
+                      setQLearning(prev => ({ ...prev, stats }));
+                    }).catch(console.warn);
+                  }, 500);
+                }).catch(console.warn);
+              }}
+              className={`px-3 py-1 rounded text-sm font-bold transition-colors ${
+                qLearning.stats?.isTraining 
+                  ? 'bg-red-600/20 border border-red-500 text-red-300 hover:bg-red-600/40'
+                  : 'bg-green-600/20 border border-green-500 text-green-300 hover:bg-green-600/40'
+              }`}
+            >
+              {qLearning.stats?.isTraining ? 'PAUSE TRAINING' : 'START TRAINING'}
+            </button>
+            
+            <button
+              onClick={() => {
+                // Force reload all Q-learning data
+                Promise.all([
+                  apiRequest('/api/qlearning/stats'),
+                  apiRequest('/api/qlearning/analytics')
+                ]).then(([stats, analytics]) => {
+                  setQLearning(prev => ({ ...prev, stats, analytics }));
+                }).catch(console.warn);
+              }}
+              className="px-3 py-1 rounded text-sm font-bold bg-blue-600/20 border border-blue-500 text-blue-300 hover:bg-blue-600/40 transition-colors"
+            >
+              REFRESH DATA
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
