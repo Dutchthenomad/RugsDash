@@ -209,6 +209,8 @@ export interface GameResult {
   peakMultiplier: number;
   endTick: number;
   timestamp: number;
+  totalPayouts?: number;   // Estimated total payouts (for treasury calculation)
+  wasInstarhug?: boolean;  // Duration < 30 ticks
 }
 
 export interface AdvancedPredictionState {
@@ -216,4 +218,41 @@ export interface AdvancedPredictionState {
   gameHistory: GameResult[];
   currentVolatilitySignal: VolatilitySignal;
   currentTreasuryPrediction: TreasuryPrediction;
+}
+
+// === ENHANCED PREDICTION SYSTEM ===
+
+export interface EnhancedPredictionData extends PredictionData {
+  // Volatility analysis
+  volatilitySignal: VolatilitySignal;
+  volatilityTrend: 'INCREASING' | 'DECREASING' | 'STABLE';
+  
+  // Meta-algorithm detection
+  treasuryRisk: TreasuryRiskLevel;
+  gameSequenceRisk: number; // 0-1 scale
+  
+  // Enhanced probability calculations
+  bayesianConfidence: number;
+  timingCompensatedProbability: number;
+  
+  // Composite signals
+  exitUrgency: 'IMMEDIATE' | 'SOON' | 'NORMAL' | 'SAFE';
+  entryQuality: 'EXCELLENT' | 'GOOD' | 'POOR' | 'AVOID';
+}
+
+export type TreasuryRiskLevel = 
+  | 'EXTREMELY_HIGH'  // 84% instarhug probability
+  | 'HIGH'           // Treasury stress detected
+  | 'ELEVATED'       // Some treasury pressure
+  | 'NORMAL';        // Standard conditions
+
+export interface EnhancedVolatilitySignal extends VolatilitySignal {
+  spikeRatio: number; // Current volatility / normal volatility
+}
+
+export interface EvidenceBundle {
+  basePrediction: PredictionData;
+  volatilitySignal: VolatilitySignal;
+  treasuryRisk: TreasuryRiskLevel;
+  timing: TimingData;
 }
