@@ -20,13 +20,12 @@ export class WebSocketClient {
   private connect(): void {
     try {
       // Connect to rugs.fun backend with required frontend version parameter
-      this.socket = io('https://backend.rugs.fun', {
-        query: {
-          'frontend-version': '1.0'
-        },
+      this.socket = io('https://backend.rugs.fun?frontend-version=1.0', {
         transports: ['websocket', 'polling'],
-        timeout: 3000, // Shorter timeout for faster fallback
-        forceNew: true
+        timeout: 5000,
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: 5
       });
 
       this.setupEventListeners();
