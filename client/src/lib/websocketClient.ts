@@ -1,11 +1,14 @@
 import { io, Socket } from 'socket.io-client';
 import { GameStateData, ConnectionStatus } from '../types/gameState';
+import { GameSimulator } from './gameSimulator';
 
 export class WebSocketClient {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = 5; // Reduced attempts for faster fallback
+  private reconnectDelay = 2000;
+  private simulator: GameSimulator | null = null;
+  private useSimulator = false;
   
   private onGameStateUpdate?: (data: GameStateData) => void;
   private onConnectionStatusChange?: (status: ConnectionStatus) => void;
@@ -22,7 +25,7 @@ export class WebSocketClient {
           'frontend-version': '1.0'
         },
         transports: ['websocket', 'polling'],
-        timeout: 5000,
+        timeout: 3000, // Shorter timeout for faster fallback
         forceNew: true
       });
 
@@ -30,6 +33,7 @@ export class WebSocketClient {
     } catch (error) {
       console.error('WebSocket connection failed:', error);
       this.handleConnectionStatus('ERROR', `Connection failed: ${error}`);
+      this.fallbackToSimulator();
     }
   }
 
@@ -90,8 +94,9 @@ export class WebSocketClient {
 
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
+      console.error('Max reconnection attempts reached, falling back to simulator');
       this.handleConnectionStatus('ERROR', 'Max reconnection attempts reached');
+      this.fallbackToSimulator();
       return;
     }
 
@@ -102,6 +107,22 @@ export class WebSocketClient {
       console.log(`Reconnection attempt ${this.reconnectAttempts}`);
       this.connect();
     }, this.reconnectDelay * this.reconnectAttempts);
+  }
+
+  private fallbackToSimulator(): void {
+    console.log('🎮 Falling back to game simulator');
+    this.useSimulator = true;
+    
+    if (!this.simulator) {
+      this.simulator = new GameSimulator();
+      this.simulator.onGameState((gameState: GameStateData) => {
+        if (this.onGameStateUpdate) {
+          this.onGameStateUpdate(gameState);
+        }
+      });
+    }
+    
+    this.handleConnectionStatus('CONNECTED', 'Using game simulator');
   }
 
   private handleConnectionStatus(status: ConnectionStatus['status'], message?: string): void {
@@ -129,16 +150,22 @@ export class WebSocketClient {
       this.socket.disconnect();
       this.socket = null;
     }
+    if (this.simulator) {
+      this.simulator.stop();
+      this.simulator = null;
+    }
+    this.useSimulator = false;
   }
 
   public isConnected(): boolean {
-    return this.socket?.connected || false;
+    return this.socket?.connected || this.useSimulator || false;
   }
 
   // Method to manually trigger reconnection
   public reconnect(): void {
     this.disconnect();
     this.reconnectAttempts = 0;
+    this.useSimulator = false;
     this.connect();
   }
 }
