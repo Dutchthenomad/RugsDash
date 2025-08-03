@@ -91,3 +91,44 @@ export interface ConnectionStatus {
   reconnectAttempts: number;
   message?: string;
 }
+
+export interface PaperTrade {
+  id: string;
+  gameId: string;
+  betTick: number;
+  exitTick: number;
+  betAmount: number;
+  probability: number;
+  expectedValue: number;
+  actualOutcome: 'WIN' | 'LOSS' | 'PENDING';
+  profit: number;
+  confidence: number;
+  zone: string;
+  timestamp: Date;
+}
+
+export interface BotSettings {
+  enabled: boolean;
+  minConfidence: number;
+  maxBetSize: number;
+  riskLevel: 'CONSERVATIVE' | 'MODERATE' | 'AGGRESSIVE';
+  autoExitThreshold: number;
+  minExpectedValue: number;
+}
+
+export interface PaperTradingBot {
+  settings: BotSettings;
+  currentTrade: PaperTrade | null;
+  tradeHistory: PaperTrade[];
+  totalProfit: number;
+  totalTrades: number;
+  winRate: number;
+  averageProfit: number;
+  maxDrawdown: number;
+  currentStreak: {
+    type: 'WIN' | 'LOSS';
+    count: number;
+  };
+  bankroll: number;
+  roi: number;
+}

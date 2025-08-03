@@ -7,6 +7,7 @@ import { PredictionEngine } from '../components/PredictionEngine';
 import { PredictionZones } from '../components/PredictionZones';
 import { PerformanceAnalytics } from '../components/PerformanceAnalytics';
 import { HistoricalInsights } from '../components/HistoricalInsights';
+import { PaperTradingBot } from '../components/PaperTradingBot';
 import { SessionStatsModal } from '../components/SessionStatsModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,8 @@ import {
   StrategyData,
   RecentPrediction,
   HistoricalInsights as HistoricalInsightsType,
-  BankrollStrategy
+  BankrollStrategy,
+  PaperTrade
 } from '../types/gameState';
 
 export default function Dashboard() {
@@ -90,6 +92,7 @@ export default function Dashboard() {
   });
   
   const [recentPredictions, setRecentPredictions] = useState<RecentPrediction[]>([]);
+  const [paperTrades, setPaperTrades] = useState<PaperTrade[]>([]);
   const [historicalInsights, setHistoricalInsights] = useState<HistoricalInsightsType>({
     totalGamesAnalyzed: 0,
     avgGameLength: 0,
@@ -198,6 +201,10 @@ export default function Dashboard() {
     wsClient.reconnect();
   };
 
+  const handleTradeExecuted = (trade: PaperTrade) => {
+    setPaperTrades(prev => [...prev, trade]);
+  };
+
   return (
     <div className="min-h-screen bg-dark-bg text-white">
       {/* Header */}
@@ -231,7 +238,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main Dashboard Grid */}
-      <div className="p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="p-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
         
         {/* Live Game Data - Left Section */}
         <div className="lg:col-span-2 space-y-6">
@@ -242,6 +249,15 @@ export default function Dashboard() {
         {/* Prediction Zones - Center Section */}
         <div>
           <PredictionZones prediction={prediction} strategy={strategy} />
+        </div>
+
+        {/* Paper Trading Bot - Right Center */}
+        <div>
+          <PaperTradingBot 
+            prediction={prediction}
+            gameState={gameState}
+            onTradeExecuted={handleTradeExecuted}
+          />
         </div>
 
         {/* Historical Intelligence - Right Section */}
