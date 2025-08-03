@@ -134,3 +134,55 @@ export interface PaperTradingBot {
   bankroll: number;
   roi: number;
 }
+
+// === PREDICTION TRACKING SYSTEM ===
+
+export interface PredictionRecord {
+  predictionId: string;
+  gameId: string;
+  predictionTick: number;
+  predictedEndWindow: {
+    start: number;
+    end: number; // 40 ticks later
+  };
+  gameState: {
+    currentMultiplier: number;
+    volatility: number;
+    ticksSinceStart: number;
+    timestamp: number;
+  };
+  confidence: number;
+  triggerReason: string;
+  strategy: string;
+  zone: string;
+}
+
+export interface OutcomeRecord {
+  predictionId: string;
+  gameId: string;
+  actualEndTick: number;
+  withinWindow: boolean;
+  ticksEarly: number; // positive if early, negative if late
+  accuracy: 'early_accurate' | 'on_time' | 'late_miss' | 'false_positive';
+  timestamp: number;
+}
+
+export interface PredictionMetrics {
+  totalPredictions: number;
+  withinWindowCount: number;
+  withinWindowRate: number;
+  averageTicksEarly: number;
+  falsePositiveRate: number;
+  optimalRangeCount: number; // predictions ending 10-30 ticks early
+  optimalRangeRate: number;
+  lastUpdated: number;
+}
+
+export interface TrackingData {
+  predictions: {
+    active: Record<string, PredictionRecord>;
+    completed: PredictionRecord[];
+  };
+  outcomes: OutcomeRecord[];
+  metrics: PredictionMetrics;
+}

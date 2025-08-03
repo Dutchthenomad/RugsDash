@@ -28,7 +28,11 @@ import {
   StrategyData,
   PaperTrade,
   PaperTradingBot as PaperTradingBotType,
-  HistoricalInsights
+  HistoricalInsights,
+  PredictionRecord,
+  OutcomeRecord,
+  TrackingData,
+  PredictionMetrics
 } from '../types/gameState';
 
 // Helper function for trade stats
@@ -124,6 +128,25 @@ export function PredictionCenter({
   } | null>(null);
   const [lastTradeGameId, setLastTradeGameId] = useState<string | null>(null);
   const [tradeCooldown, setTradeCooldown] = useState<boolean>(false);
+  
+  // === PREDICTION TRACKING STATE ===
+  const [trackingData, setTrackingData] = useState<TrackingData>({
+    predictions: {
+      active: {},
+      completed: []
+    },
+    outcomes: [],
+    metrics: {
+      totalPredictions: 0,
+      withinWindowCount: 0,
+      withinWindowRate: 0,
+      averageTicksEarly: 0,
+      falsePositiveRate: 0,
+      optimalRangeCount: 0,
+      optimalRangeRate: 0,
+      lastUpdated: Date.now()
+    }
+  });
 
   const getZoneColor = () => {
     switch (prediction.zone.name) {
@@ -231,6 +254,120 @@ export function PredictionCenter({
     return bot.currentStreak.type === 'LOSS' ? bot.currentStreak.count : 0;
   };
 
+  // ===== PREDICTION TRACKING SYSTEM =====
+  
+  const logPrediction = (gameId: string, currentTick: number, strategy: string) => {
+    const predictionId = `${gameId}_tick_${currentTick}`;
+    
+    const prediction: PredictionRecord = {
+      predictionId,
+      gameId,
+      predictionTick: currentTick,
+      predictedEndWindow: {
+        start: currentTick,
+        end: currentTick + 40
+      },
+      gameState: {
+        currentMultiplier: gameState.price,
+        volatility: timing.variance / 1000, // Convert to reasonable scale
+        ticksSinceStart: currentTick,
+        timestamp: Date.now()
+      },
+      confidence: getAdjustedConfidence(prediction.confidence, timing),
+      triggerReason: `${strategy}_strategy`,
+      strategy,
+      zone: prediction.zone.name
+    };
+    
+    setTrackingData(prev => ({
+      ...prev,
+      predictions: {
+        ...prev.predictions,
+        active: {
+          ...prev.predictions.active,
+          [gameId]: prediction
+        }
+      },
+      metrics: {
+        ...prev.metrics,
+        totalPredictions: prev.metrics.totalPredictions + 1,
+        lastUpdated: Date.now()
+      }
+    }));
+    
+    return predictionId;
+  };
+  
+  const recordGameEnd = (gameId: string, endTick: number) => {
+    const activePrediction = trackingData.predictions.active[gameId];
+    if (!activePrediction) return;
+    
+    const windowEnd = activePrediction.predictedEndWindow.end;
+    const withinWindow = endTick <= windowEnd;
+    const ticksEarly = windowEnd - endTick;
+    
+    // Categorize accuracy
+    let accuracy: OutcomeRecord['accuracy'];
+    if (!withinWindow) {
+      if (endTick > windowEnd + 60) {
+        accuracy = 'false_positive'; // Game went way longer
+      } else {
+        accuracy = 'late_miss'; // Just missed the window
+      }
+    } else {
+      if (Math.abs(ticksEarly) <= 5) {
+        accuracy = 'on_time';
+      } else {
+        accuracy = 'early_accurate';
+      }
+    }
+    
+    const outcome: OutcomeRecord = {
+      predictionId: activePrediction.predictionId,
+      gameId,
+      actualEndTick: endTick,
+      withinWindow,
+      ticksEarly,
+      accuracy,
+      timestamp: Date.now()
+    };
+    
+    // Update tracking data
+    setTrackingData(prev => {
+      const newOutcomes = [...prev.outcomes, outcome];
+      const completedPredictions = [...prev.predictions.completed, activePrediction];
+      const activeWithoutCurrent = { ...prev.predictions.active };
+      delete activeWithoutCurrent[gameId];
+      
+      // Calculate new metrics
+      const withinWindowCount = newOutcomes.filter(o => o.withinWindow).length;
+      const optimalRangeCount = newOutcomes.filter(o => o.withinWindow && o.ticksEarly >= 10 && o.ticksEarly <= 30).length;
+      const falsePositiveCount = newOutcomes.filter(o => o.accuracy === 'false_positive').length;
+      
+      const avgTicksEarly = newOutcomes.length > 0 
+        ? newOutcomes.reduce((sum, o) => sum + o.ticksEarly, 0) / newOutcomes.length 
+        : 0;
+      
+      return {
+        predictions: {
+          active: activeWithoutCurrent,
+          completed: completedPredictions
+        },
+        outcomes: newOutcomes,
+        metrics: {
+          totalPredictions: prev.metrics.totalPredictions,
+          withinWindowCount,
+          withinWindowRate: prev.metrics.totalPredictions > 0 ? withinWindowCount / prev.metrics.totalPredictions : 0,
+          averageTicksEarly: avgTicksEarly,
+          falsePositiveRate: prev.metrics.totalPredictions > 0 ? falsePositiveCount / prev.metrics.totalPredictions : 0,
+          optimalRangeCount,
+          optimalRangeRate: prev.metrics.totalPredictions > 0 ? optimalRangeCount / prev.metrics.totalPredictions : 0,
+          lastUpdated: Date.now()
+        }
+      };
+    });
+  };
+
   // Bot decision making logic with strict safeguards
   useEffect(() => {
     if (!bot.settings.enabled || !gameState.active || tradeCooldown) {
@@ -321,6 +458,9 @@ export function PredictionCenter({
         bot.settings.maxBetSize,
         Math.max(0.001, recoveryAmount) // Minimum 0.001 SOL
       );
+      
+      // 8. LOG PREDICTION FOR TRACKING SYSTEM
+      const predictionId = logPrediction(currentGameId, gameState.tickCount, strategy || 'unknown');
 
       const newTrade: PaperTrade = {
         id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -380,6 +520,10 @@ export function PredictionCenter({
   useEffect(() => {
     if (!gameState.active && bot.currentTrade) {
       const currentTrade = bot.currentTrade;
+      const currentGameId = gameState.gameId || currentTrade.gameId;
+      
+      // RECORD GAME END FOR PREDICTION TRACKING
+      recordGameEnd(currentGameId, gameState.tickCount);
       
       // Clear current trade immediately to prevent duplicate processing
       setBot(prev => ({ ...prev, currentTrade: null }));
@@ -721,6 +865,73 @@ export function PredictionCenter({
         </Card>
       </div>
 
+      {/* Prediction Tracking Metrics */}
+      {trackingData.metrics.totalPredictions > 0 && (
+        <Card className="bg-card-bg border-gray-600">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-accent-blue flex items-center">
+              <Brain className="h-4 w-4 mr-1" />
+              40-Tick Prediction Accuracy
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-center mb-3">
+              <div>
+                <div className={`text-lg font-mono font-bold ${
+                  trackingData.metrics.withinWindowRate >= 0.6 ? 'text-crypto-green' :
+                  trackingData.metrics.withinWindowRate >= 0.4 ? 'text-yellow-500' :
+                  'text-alert-red'
+                }`}>
+                  {(trackingData.metrics.withinWindowRate * 100).toFixed(1)}%
+                </div>
+                <div className="text-xs text-gray-400">Within Window</div>
+              </div>
+              <div>
+                <div className="text-lg font-mono font-bold text-white">
+                  {trackingData.metrics.averageTicksEarly.toFixed(1)}
+                </div>
+                <div className="text-xs text-gray-400">Avg Ticks Early</div>
+              </div>
+              <div>
+                <div className={`text-sm font-mono font-bold ${
+                  trackingData.metrics.optimalRangeRate >= 0.3 ? 'text-crypto-green' : 'text-gray-400'
+                }`}>
+                  {(trackingData.metrics.optimalRangeRate * 100).toFixed(1)}%
+                </div>
+                <div className="text-xs text-gray-400">Optimal Range</div>
+              </div>
+              <div>
+                <div className={`text-sm font-mono font-bold ${
+                  trackingData.metrics.falsePositiveRate <= 0.2 ? 'text-crypto-green' : 'text-alert-red'
+                }`}>
+                  {(trackingData.metrics.falsePositiveRate * 100).toFixed(1)}%
+                </div>
+                <div className="text-xs text-gray-400">False Positive</div>
+              </div>
+            </div>
+            
+            {/* Active Predictions */}
+            {Object.keys(trackingData.predictions.active).length > 0 && (
+              <div className="bg-accent-blue/10 p-2 rounded border border-accent-blue/30">
+                <div className="text-xs text-accent-blue font-semibold mb-1">
+                  Active Predictions: {Object.keys(trackingData.predictions.active).length}
+                </div>
+                {Object.values(trackingData.predictions.active).slice(0, 2).map(pred => (
+                  <div key={pred.predictionId} className="text-xs text-gray-300 font-mono">
+                    T{pred.predictionTick}-{pred.predictedEndWindow.end} | {pred.zone} | {pred.strategy}
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="text-xs text-gray-500 mt-2">
+              Total Predictions: {trackingData.metrics.totalPredictions} | 
+              Completed: {trackingData.outcomes.length}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      
       {/* Recent Trades */}
       {bot.tradeHistory.length > 0 && (
         <Card className="bg-card-bg border-gray-600">
