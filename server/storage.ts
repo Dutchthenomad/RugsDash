@@ -1,5 +1,6 @@
 import { 
-  type User, type InsertUser, type Prediction, type InsertPrediction, 
+  type User, type InsertUser, type RefreshToken, type InsertRefreshToken,
+  type Prediction, type InsertPrediction, 
   type PredictionResult, type InsertPredictionResult, type GameHistory, 
   type InsertGameHistory, type MarketPattern, type InsertMarketPattern,
   type SideBet, type InsertSideBet, type QState, type InsertQState,
@@ -15,7 +16,17 @@ import { randomUUID } from "crypto";
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserLastLogin(userId: string): Promise<void>;
+  updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
+  
+  // Refresh token methods
+  createRefreshToken(token: InsertRefreshToken): Promise<RefreshToken>;
+  getRefreshToken(token: string): Promise<RefreshToken | undefined>;
+  revokeRefreshToken(token: string): Promise<void>;
+  revokeRefreshTokensByDevice(userId: string, deviceInfo?: string): Promise<void>;
+  revokeAllRefreshTokens(userId: string): Promise<void>;
   
   // Prediction methods
   getAllPredictions(): Promise<Prediction[]>;
@@ -86,6 +97,7 @@ export interface IStorage {
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
+  private refreshTokens: Map<string, RefreshToken>;
   private predictions: Map<string, Prediction>;
   private predictionResults: Map<string, PredictionResult>;
   private gameHistory: Map<string, GameHistory>;
@@ -102,6 +114,7 @@ export class MemStorage implements IStorage {
 
   constructor() {
     this.users = new Map();
+    this.refreshTokens = new Map();
     this.predictions = new Map();
     this.predictionResults = new Map();
     this.gameHistory = new Map();
@@ -129,9 +142,83 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const now = new Date();
+    const user: User = { 
+      ...insertUser, 
+      id,
+      isActive: true,
+      lastLogin: null,
+      createdAt: now,
+      updatedAt: now
+    };
     this.users.set(id, user);
     return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.email === email,
+    );
+  }
+
+  async updateUserLastLogin(userId: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.lastLogin = new Date();
+      user.updatedAt = new Date();
+      this.users.set(userId, user);
+    }
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.password = hashedPassword;
+      user.updatedAt = new Date();
+      this.users.set(userId, user);
+    }
+  }
+
+  // Refresh token methods
+  async createRefreshToken(insertToken: InsertRefreshToken): Promise<RefreshToken> {
+    const id = randomUUID();
+    const token: RefreshToken = {
+      ...insertToken,
+      id,
+      createdAt: new Date(),
+    };
+    this.refreshTokens.set(insertToken.token, token);
+    return token;
+  }
+
+  async getRefreshToken(token: string): Promise<RefreshToken | undefined> {
+    return this.refreshTokens.get(token);
+  }
+
+  async revokeRefreshToken(token: string): Promise<void> {
+    const refreshToken = this.refreshTokens.get(token);
+    if (refreshToken) {
+      refreshToken.isRevoked = true;
+      this.refreshTokens.set(token, refreshToken);
+    }
+  }
+
+  async revokeRefreshTokensByDevice(userId: string, deviceInfo?: string): Promise<void> {
+    for (const [tokenStr, token] of this.refreshTokens.entries()) {
+      if (token.userId === userId && (!deviceInfo || token.deviceInfo === deviceInfo)) {
+        token.isRevoked = true;
+        this.refreshTokens.set(tokenStr, token);
+      }
+    }
+  }
+
+  async revokeAllRefreshTokens(userId: string): Promise<void> {
+    for (const [tokenStr, token] of this.refreshTokens.entries()) {
+      if (token.userId === userId) {
+        token.isRevoked = true;
+        this.refreshTokens.set(tokenStr, token);
+      }
+    }
   }
 
   async getAllPredictions(): Promise<Prediction[]> {
@@ -543,7 +630,7 @@ export class MemStorage implements IStorage {
 // Database storage implementation using Drizzle ORM
 import { db } from "./db";
 import { 
-  users, gameStates, gameHistory, marketPatterns, predictions, predictionResults,
+  users, refreshTokens, gameStates, gameHistory, marketPatterns, predictions, predictionResults,
   sideBets, qStates, qActions, qValues, trainingEpisodes, modelParameters, performanceMetrics
 } from "@shared/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -564,6 +651,62 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || undefined;
+  }
+
+  async updateUserLastLogin(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        lastLogin: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        password: hashedPassword,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, userId));
+  }
+
+  // Refresh token methods
+  async createRefreshToken(insertToken: InsertRefreshToken): Promise<RefreshToken> {
+    const [token] = await db.insert(refreshTokens).values(insertToken).returning();
+    return token;
+  }
+
+  async getRefreshToken(token: string): Promise<RefreshToken | undefined> {
+    const [refreshToken] = await db.select().from(refreshTokens).where(eq(refreshTokens.token, token));
+    return refreshToken || undefined;
+  }
+
+  async revokeRefreshToken(token: string): Promise<void> {
+    await db.update(refreshTokens)
+      .set({ isRevoked: true })
+      .where(eq(refreshTokens.token, token));
+  }
+
+  async revokeRefreshTokensByDevice(userId: string, deviceInfo?: string): Promise<void> {
+    const whereCondition = deviceInfo 
+      ? and(eq(refreshTokens.userId, userId), eq(refreshTokens.deviceInfo, deviceInfo))
+      : eq(refreshTokens.userId, userId);
+    
+    await db.update(refreshTokens)
+      .set({ isRevoked: true })
+      .where(whereCondition);
+  }
+
+  async revokeAllRefreshTokens(userId: string): Promise<void> {
+    await db.update(refreshTokens)
+      .set({ isRevoked: true })
+      .where(eq(refreshTokens.userId, userId));
   }
 
   // Prediction methods

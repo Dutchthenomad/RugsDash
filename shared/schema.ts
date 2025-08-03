@@ -6,8 +6,28 @@ import { z } from "zod";
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
+  email: text("email").unique(),
   password: text("password").notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("user"), // user, admin, premium
+  isActive: boolean("is_active").notNull().default(true),
+  lastLogin: timestamp("last_login"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Refresh tokens for secure JWT rotation
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  deviceInfo: text("device_info"), // User agent, IP for tracking
+  isRevoked: boolean("is_revoked").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index("refresh_tokens_user_id_idx").on(table.userId),
+  expiresAtIdx: index("refresh_tokens_expires_at_idx").on(table.expiresAt),
+}));
 
 export const gameStates = pgTable("game_states", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -179,7 +199,14 @@ export const performanceMetrics = pgTable("performance_metrics", {
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
+  email: true,
   password: true,
+  role: true,
+});
+
+export const insertRefreshTokenSchema = createInsertSchema(refreshTokens).omit({
+  id: true,
+  createdAt: true,
 });
 
 export const insertGameStateSchema = createInsertSchema(gameStates).omit({
@@ -245,6 +272,8 @@ export const insertPerformanceMetricSchema = createInsertSchema(performanceMetri
 // Base types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type RefreshToken = typeof refreshTokens.$inferSelect;
+export type InsertRefreshToken = z.infer<typeof insertRefreshTokenSchema>;
 export type GameState = typeof gameStates.$inferSelect;
 export type InsertGameState = z.infer<typeof insertGameStateSchema>;
 export type GameHistory = typeof gameHistory.$inferSelect;

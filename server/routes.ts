@@ -1,124 +1,125 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import cookieParser from "cookie-parser";
 import { storage } from "./storage";
 import { qLearningService } from "./qlearning/QLearningService";
+import { authRoutes } from "./auth/authRoutes";
+import { authenticateToken, optionalAuth, requireRole } from "./auth/authService";
+import { validateRequest } from "./middleware/validation";
+import { asyncHandler } from "./middleware/errorHandler";
+import * as schemas from "./validation/schemas";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // API routes for prediction data storage
-  app.get("/api/predictions", async (req, res) => {
-    try {
+  // Add cookie parser middleware for handling refresh tokens
+  app.use(cookieParser());
+  
+  // Authentication routes (public)
+  app.use('/auth', authRoutes);
+  
+  // API routes for prediction data storage (protected)
+  app.get("/api/predictions", 
+    authenticateToken,
+    asyncHandler(async (req, res) => {
       const predictions = await storage.getAllPredictions();
       res.json(predictions);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch predictions" });
-    }
-  });
+    })
+  );
 
-  app.post("/api/predictions", async (req, res) => {
-    try {
+  app.post("/api/predictions", 
+    authenticateToken,
+    validateRequest(schemas.createPredictionSchema),
+    asyncHandler(async (req, res) => {
       const prediction = await storage.createPrediction(req.body);
       res.json(prediction);
-    } catch (error) {
-      res.status(400).json({ error: "Failed to create prediction" });
-    }
-  });
+    })
+  );
 
-  app.get("/api/analytics", async (req, res) => {
-    try {
+  app.get("/api/analytics", 
+    authenticateToken,
+    asyncHandler(async (req, res) => {
       const analytics = await storage.getAnalytics();
       res.json(analytics);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch analytics" });
-    }
-  });
+    })
+  );
 
-  // Q-Learning API endpoints
-  app.post("/api/qlearning/recommendation", async (req, res) => {
-    try {
+  // Q-Learning API endpoints (protected)
+  app.post("/api/qlearning/recommendation", 
+    authenticateToken,
+    validateRequest(schemas.qLearningRecommendationSchema),
+    asyncHandler(async (req, res) => {
       const { gameState, timing, bankroll } = req.body;
       const recommendation = await qLearningService.getRecommendation(gameState, timing, bankroll);
       res.json(recommendation);
-    } catch (error) {
-      console.error('Q-learning recommendation error:', error);
-      res.status(500).json({ error: "Failed to get Q-learning recommendation" });
-    }
-  });
+    })
+  );
 
-  app.post("/api/qlearning/execute-bet", async (req, res) => {
-    try {
+  app.post("/api/qlearning/execute-bet", 
+    authenticateToken,
+    validateRequest(schemas.executeBetSchema),
+    asyncHandler(async (req, res) => {
       const { gameId, decision, gameState } = req.body;
       const bet = await qLearningService.executeBet(gameId, decision, gameState);
       res.json(bet);
-    } catch (error) {
-      console.error('Q-learning bet execution error:', error);
-      res.status(500).json({ error: "Failed to execute Q-learning bet" });
-    }
-  });
+    })
+  );
 
-  app.post("/api/qlearning/start-game", async (req, res) => {
-    try {
+  app.post("/api/qlearning/start-game", 
+    authenticateToken,
+    validateRequest(schemas.startGameSchema),
+    asyncHandler(async (req, res) => {
       const { gameId } = req.body;
       await qLearningService.startGame(gameId);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Q-learning start game error:', error);
-      res.status(500).json({ error: "Failed to start Q-learning game" });
-    }
-  });
+      res.json({ message: 'Game started successfully' });
+    })
+  );
 
-  app.post("/api/qlearning/end-game", async (req, res) => {
-    try {
+  app.post("/api/qlearning/end-game", 
+    authenticateToken,
+    validateRequest(schemas.endGameSchema),
+    asyncHandler(async (req, res) => {
       const { gameId, finalTick } = req.body;
       await qLearningService.endGame(gameId, finalTick);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Q-learning end game error:', error);
-      res.status(500).json({ error: "Failed to end Q-learning game" });
-    }
-  });
+      res.json({ message: 'Game ended successfully' });
+    })
+  );
 
-  app.post("/api/qlearning/record-tick", async (req, res) => {
-    try {
+  app.post("/api/qlearning/record-tick", 
+    authenticateToken,
+    validateRequest(schemas.recordTickSchema),
+    asyncHandler(async (req, res) => {
       const { tick, timestamp } = req.body;
       qLearningService.recordTick(tick, timestamp);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Q-learning tick recording error:', error);
-      res.status(500).json({ error: "Failed to record tick" });
-    }
-  });
+      res.json({ message: 'Tick recorded successfully' });
+    })
+  );
 
-  app.get("/api/qlearning/stats", async (req, res) => {
-    try {
+  app.get("/api/qlearning/stats", 
+    authenticateToken,
+    asyncHandler(async (req, res) => {
       const stats = await qLearningService.getStats();
       res.json(stats);
-    } catch (error) {
-      console.error('Q-learning stats error:', error);
-      res.status(500).json({ error: "Failed to get Q-learning stats" });
-    }
-  });
+    })
+  );
 
-  app.get("/api/qlearning/analytics", async (req, res) => {
-    try {
+  app.get("/api/qlearning/analytics", 
+    authenticateToken,
+    asyncHandler(async (req, res) => {
       const analytics = await qLearningService.getAnalytics();
       res.json(analytics);
-    } catch (error) {
-      console.error('Q-learning analytics error:', error);
-      res.status(500).json({ error: "Failed to get Q-learning analytics" });
-    }
-  });
+    })
+  );
 
-  app.post("/api/qlearning/training", async (req, res) => {
-    try {
+  app.post("/api/qlearning/training", 
+    authenticateToken,
+    requireRole(['admin']), // Only admins can toggle training
+    validateRequest(schemas.trainingToggleSchema),
+    asyncHandler(async (req, res) => {
       const { enabled } = req.body;
       qLearningService.setTraining(enabled);
-      res.json({ success: true, training: enabled });
-    } catch (error) {
-      console.error('Q-learning training toggle error:', error);
-      res.status(500).json({ error: "Failed to toggle training" });
-    }
-  });
+      res.json({ message: `Training ${enabled ? 'enabled' : 'disabled'} successfully` });
+    })
+  );
 
   // Initialize Q-learning service
   await qLearningService.initialize();
