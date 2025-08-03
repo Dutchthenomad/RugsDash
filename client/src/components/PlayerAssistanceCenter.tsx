@@ -9,7 +9,8 @@ import {
   PaperTradingBot as PaperTradingBotType,
   HistoricalInsights,
   VolatilitySignal,
-  TreasuryRiskLevel
+  TreasuryRiskLevel,
+  ConnectionStatus
 } from '../types/gameState';
 import { apiRequest } from '@/lib/queryClient';
 
@@ -47,6 +48,7 @@ interface PlayerAssistanceCenterProps {
   timing: TimingData;
   strategy: StrategyData;
   insights: HistoricalInsights;
+  connectionStatus: ConnectionStatus;
   onTradeExecuted?: (trade: PaperTrade) => void;
 }
 
@@ -56,6 +58,7 @@ export function PlayerAssistanceCenter({
   timing, 
   strategy, 
   insights,
+  connectionStatus,
   onTradeExecuted 
 }: PlayerAssistanceCenterProps) {
   // Bot state - now supporting multi-bet per game
@@ -140,7 +143,10 @@ export function PlayerAssistanceCenter({
 
   // Get Q-Learning recommendation
   const getQLearningRecommendation = async () => {
-    if (!qLearning.isEnabled || !gameState.active) return;
+    // Only operate with real WebSocket data - no simulated data allowed
+    if (!qLearning.isEnabled || !gameState.active || 
+        connectionStatus.status !== 'CONNECTED' || 
+        !gameState.gameId || !gameState.timestamp) return;
 
     try {
       const response = await apiRequest('/api/qlearning/recommendation', {
@@ -164,7 +170,10 @@ export function PlayerAssistanceCenter({
 
   // Enhanced opportunity evaluation with Q-Learning fusion
   const evaluateCurrentOpportunity = () => {
-    if (!gameState.active || gameState.tickCount < 1) {
+    // Only evaluate opportunities with real WebSocket data
+    if (!gameState.active || gameState.tickCount < 1 || 
+        connectionStatus.status !== 'CONNECTED' || 
+        !gameState.gameId || !gameState.timestamp) {
       setCurrentOpportunity(null);
       return;
     }
@@ -367,34 +376,43 @@ export function PlayerAssistanceCenter({
 
   // Initialize Q-learning game tracking
   useEffect(() => {
-    if (gameState.gameId && gameState.gameId !== currentGameId) {
+    // Only start Q-learning episodes with real WebSocket data
+    if (gameState.gameId && gameState.gameId !== currentGameId && 
+        connectionStatus.status === 'CONNECTED' && 
+        gameState.timestamp) {
       // Start new Q-learning episode
       apiRequest('/api/qlearning/start-game', {
         method: 'POST',
         body: { gameId: gameState.gameId }
       }).catch(console.warn);
+      setCurrentGameId(gameState.gameId);
     }
-  }, [gameState.gameId, currentGameId]);
+  }, [gameState.gameId, currentGameId, connectionStatus.status]);
 
-  // Record tick updates for Q-learning
+  // Record tick updates for Q-learning - only with real WebSocket data
   useEffect(() => {
-    if (gameState.active && gameState.tickCount) {
+    // Only operate with real WebSocket data - no simulated data allowed
+    if (gameState.active && gameState.tickCount && 
+        connectionStatus.status === 'CONNECTED' && 
+        gameState.gameId && gameState.timestamp) {
       apiRequest('/api/qlearning/record-tick', {
         method: 'POST',
         body: { tick: gameState.tickCount, timestamp: Date.now() }
       }).catch(console.warn);
     }
-  }, [gameState.tickCount]);
+  }, [gameState.tickCount, connectionStatus.status]);
 
-  // End Q-learning episode when game ends
+  // End Q-learning episode when game ends - only with real data
   useEffect(() => {
-    if (!gameState.active && currentGameId) {
+    if (!gameState.active && currentGameId && 
+        connectionStatus.status === 'CONNECTED') {
       apiRequest('/api/qlearning/end-game', {
         method: 'POST',
         body: { gameId: currentGameId, finalTick: gameState.tickCount || 0 }
       }).catch(console.warn);
+      setCurrentGameId(null);
     }
-  }, [gameState.active, currentGameId, gameState.tickCount]);
+  }, [gameState.active, currentGameId, gameState.tickCount, connectionStatus.status]);
 
   // Load Q-learning stats and analytics periodically
   useEffect(() => {

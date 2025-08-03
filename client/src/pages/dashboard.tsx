@@ -213,6 +213,7 @@ export default function Dashboard() {
             timing={timing}
             strategy={strategy}
             insights={historicalInsights}
+            connectionStatus={connectionStatus}
             onTradeExecuted={handleTradeExecuted}
           />
           
