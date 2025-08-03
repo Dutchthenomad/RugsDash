@@ -184,15 +184,17 @@ export function PredictionCenter({
       const newTrade: PaperTrade = {
         id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         gameId: currentGameId,
-        betTick: gameState.tickCount,
-        exitTick: 0,
+        startTick: gameState.tickCount,
+        endTick: gameState.tickCount + 40,  // 40-tick window like real side bets
         betAmount,
+        payout: betAmount * 5,  // 5:1 payout like real side bets
         probability: prediction.rugProbability,
         expectedValue: prediction.expectedValue,
         actualOutcome: 'PENDING',
         profit: 0,
         confidence: prediction.confidence,
         zone: prediction.zone.name,
+        xPayout: 5,
         timestamp: new Date()
       };
 
@@ -226,12 +228,12 @@ export function PredictionCenter({
       // Clear current trade immediately to prevent duplicate processing
       setBot(prev => ({ ...prev, currentTrade: null }));
       
-      const isWin = gameState.tickCount > currentTrade.betTick + 20;
-      const profit = isWin ? currentTrade.betAmount * 4 : -currentTrade.betAmount;
+      // Side bet wins if game reaches endTick (40 ticks after startTick)
+      const isWin = gameState.tickCount >= currentTrade.endTick;
+      const profit = isWin ? currentTrade.payout - currentTrade.betAmount : -currentTrade.betAmount;
 
       const completedTrade = {
         ...currentTrade,
-        exitTick: gameState.tickCount,
         actualOutcome: isWin ? 'WIN' as const : 'LOSS' as const,
         profit
       };
@@ -395,7 +397,7 @@ export function PredictionCenter({
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-accent-blue">Active Position</span>
                   <span className="text-xs font-mono text-white">
-                    {bot.currentTrade.betAmount.toFixed(3)} SOL @ Tick {bot.currentTrade.betTick}
+                    {bot.currentTrade.betAmount.toFixed(3)} SOL | T{bot.currentTrade.startTick}-{bot.currentTrade.endTick}
                   </span>
                 </div>
               </div>
@@ -525,7 +527,7 @@ export function PredictionCenter({
                     ) : (
                       <XCircle className="h-3 w-3 text-alert-red" />
                     )}
-                    <span className="font-mono text-gray-400">T{trade.betTick}</span>
+                    <span className="font-mono text-gray-400">T{trade.startTick}-{trade.endTick}</span>
                     <span className="text-gray-300">{trade.zone}</span>
                   </div>
                   <div className={`font-mono font-bold ${

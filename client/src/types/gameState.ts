@@ -95,15 +95,17 @@ export interface ConnectionStatus {
 export interface PaperTrade {
   id: string;
   gameId: string;
-  betTick: number;
-  exitTick: number;
+  startTick: number;  // When side bet window starts
+  endTick: number;    // When side bet window ends (startTick + 40)
   betAmount: number;
+  payout: number;     // Total payout if win (betAmount * 5)
   probability: number;
   expectedValue: number;
   actualOutcome: 'WIN' | 'LOSS' | 'PENDING';
-  profit: number;
+  profit: number;     // payout - betAmount if win, -betAmount if loss
   confidence: number;
   zone: string;
+  xPayout: number;    // Multiplier (5 for side bets)
   timestamp: Date;
 }
 
