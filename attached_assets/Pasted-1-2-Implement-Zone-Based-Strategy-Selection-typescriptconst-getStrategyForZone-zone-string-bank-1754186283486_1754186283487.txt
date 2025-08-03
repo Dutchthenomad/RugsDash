@@ -1,0 +1,95 @@
+1.2 Implement Zone-Based Strategy Selection
+typescriptconst getStrategyForZone = (zone: string, bankroll: number) => {
+  switch(zone) {
+    case 'AVOID': return null; // Never bet
+    case 'CAUTION': return 'conservative'; 
+    case 'OPPORTUNITY': return 'moderate';
+    case 'STRONG': return 'aggressive';
+    case 'EXCELLENT': return 'aggressive_plus';
+    case 'CERTAINTY': return 'mathematical_certainty';
+  }
+};
+1.3 Add Timing Reliability Compensation
+typescriptconst getAdjustedConfidence = (baseConfidence: number, timing: TimingData) => {
+  const reliabilityPenalty = (1 - timing.reliability) * 0.2; // Up to 20% penalty
+  return Math.max(0.1, baseConfidence - reliabilityPenalty);
+};
+Priority 2: Strategy Intelligence (High Impact)
+2.1 Implement Bankroll Tier System
+Your docs define 4 tiers based on bankroll size:
+typescriptconst getBankrollTier = (bankroll: number) => {
+  if (bankroll < 0.5) return 'TIER_1'; // Conservative
+  if (bankroll < 2.0) return 'TIER_2'; // Moderate  
+  if (bankroll < 10.0) return 'TIER_3'; // Aggressive
+  return 'TIER_4'; // Mathematical Certainty
+};
+2.2 Zone-Optimized Bet Sizing
+typescriptconst getZoneBetMultiplier = (zone: string) => {
+  const multipliers = {
+    'OPPORTUNITY': 1.0,
+    'STRONG': 2.0,
+    'EXCELLENT': 3.0,
+    'CERTAINTY': 5.0
+  };
+  return multipliers[zone] || 0;
+};
+2.3 Implement Loss Recovery Logic
+Your docs mention controlled Martingale for Tier 3+:
+typescriptconst calculateRecoveryBet = (consecutiveLosses: number, baseAmount: number) => {
+  if (consecutiveLosses === 0) return baseAmount;
+  // Conservative progression: 1x, 1.5x, 2x, 3x max
+  const progression = [1, 1.5, 2, 3];
+  const multiplier = progression[Math.min(consecutiveLosses, 3)];
+  return baseAmount * multiplier;
+};
+Priority 3: Advanced Intelligence (Medium Impact)
+3.1 Market Condition Adaptation
+typescriptconst adjustForMarketConditions = (baseProbability: number, gameState: GameStateData) => {
+  let adjusted = baseProbability;
+  
+  // High tick count = more dangerous
+  if (gameState.tickCount > 800) adjusted += 0.05;
+  
+  // High volatility = more unpredictable  
+  if (gameState.priceVolatility > 0.1) adjusted += 0.03;
+  
+  return Math.min(0.95, adjusted);
+};
+3.2 Dynamic Exit Strategy
+Instead of static 30% threshold:
+typescriptconst getDynamicExitThreshold = (entryZone: string, currentTick: number, startTick: number) => {
+  const baseThreshold = {
+    'OPPORTUNITY': 0.4,
+    'STRONG': 0.5, 
+    'EXCELLENT': 0.6,
+    'CERTAINTY': 0.8
+  }[entryZone] || 0.3;
+  
+  // Become more conservative as time passes
+  const timeDecay = (currentTick - startTick) / 40 * 0.1;
+  return Math.max(0.2, baseThreshold - timeDecay);
+};
+3.3 Confidence-Based Position Sizing
+typescriptconst getConfidenceAdjustedSize = (baseSize: number, confidence: number) => {
+  // Scale bet size with confidence: 50% confidence = 50% size
+  const confidenceMultiplier = Math.max(0.1, confidence);
+  return baseSize * confidenceMultiplier;
+};
+Priority 4: Performance Intelligence (Lower Impact)
+4.1 Adaptive Learning from History
+typescriptconst getHistoricalAccuracyBonus = (recentAccuracy: number) => {
+  // Boost confidence if model has been accurate recently
+  if (recentAccuracy > 0.8) return 0.1;  // 10% bonus
+  if (recentAccuracy < 0.6) return -0.1; // 10% penalty
+  return 0;
+};
+4.2 Gap Risk Management
+typescriptconst shouldAvoidGapRisk = (currentTick: number, timing: TimingData) => {
+  // Avoid betting near expected gap periods
+  const timeSinceLastTick = Date.now() - timing.lastTickTime;
+  const expectedGap = timing.variance > 500; // High variance = gap risk
+  
+  return expectedGap && timeSinceLastTick > 400; // 400ms+ since last tick
+};
+Implementation Priority Matrix
+UpgradeImpactEffortROIFix 40-tick win conditionCriticalLowImmediateZone-based strategy selectionHighMediumVery HighTiming reliability compensationMediumLowHighBankroll tier systemHighMediumHighDynamic bet sizingMediumMediumMediumLoss recovery logicMediumHighMedium

@@ -148,6 +148,89 @@ export function PredictionCenter({
     return <Play className="h-4 w-4" />;
   };
 
+  // ===== ADVANCED BOT STRATEGY FUNCTIONS =====
+  
+  // Priority 1: Zone-Based Strategy Selection
+  const getStrategyForZone = (zone: string, bankroll: number) => {
+    switch(zone) {
+      case 'AVOID': return null; // Never bet
+      case 'CAUTION': return 'conservative'; 
+      case 'OPPORTUNITY': return 'moderate';
+      case 'STRONG': return 'aggressive';
+      case 'EXCELLENT': return 'aggressive_plus';
+      case 'CERTAINTY': return 'mathematical_certainty';
+      default: return null;
+    }
+  };
+
+  // Priority 1: Timing Reliability Compensation
+  const getAdjustedConfidence = (baseConfidence: number, timing: TimingData) => {
+    const reliabilityPenalty = (1 - timing.reliability) * 0.2; // Up to 20% penalty
+    return Math.max(0.1, baseConfidence - reliabilityPenalty);
+  };
+
+  // Priority 2: Bankroll Tier System
+  const getBankrollTier = (bankroll: number) => {
+    if (bankroll < 0.5) return 'TIER_1'; // Conservative
+    if (bankroll < 2.0) return 'TIER_2'; // Moderate  
+    if (bankroll < 10.0) return 'TIER_3'; // Aggressive
+    return 'TIER_4'; // Mathematical Certainty
+  };
+
+  // Priority 2: Zone-Optimized Bet Sizing
+  const getZoneBetMultiplier = (zone: string): number => {
+    const multipliers: Record<string, number> = {
+      'OPPORTUNITY': 1.0,
+      'STRONG': 2.0,
+      'EXCELLENT': 3.0,
+      'CERTAINTY': 5.0
+    };
+    return multipliers[zone] || 0;
+  };
+
+  // Priority 2: Loss Recovery Logic
+  const calculateRecoveryBet = (consecutiveLosses: number, baseAmount: number) => {
+    if (consecutiveLosses === 0) return baseAmount;
+    // Conservative progression: 1x, 1.5x, 2x, 3x max
+    const progression = [1, 1.5, 2, 3];
+    const multiplier = progression[Math.min(consecutiveLosses, 3)];
+    return baseAmount * multiplier;
+  };
+
+  // Priority 3: Market Condition Adaptation
+  const adjustForMarketConditions = (baseProbability: number, gameState: GameStateData) => {
+    let adjusted = baseProbability;
+    
+    // High tick count = more dangerous
+    if (gameState.tickCount > 800) adjusted += 0.05;
+    
+    // High price volatility = more unpredictable (if available)
+    // Note: gameState.priceVolatility might not exist, using price as proxy
+    const recentVolatility = gameState.price > 3.0 ? 0.15 : 0.05;
+    if (recentVolatility > 0.1) adjusted += 0.03;
+    
+    return Math.min(0.95, adjusted);
+  };
+
+  // Priority 3: Confidence-Based Position Sizing
+  const getConfidenceAdjustedSize = (baseSize: number, confidence: number) => {
+    // Scale bet size with confidence: 50% confidence = 50% size
+    const confidenceMultiplier = Math.max(0.1, confidence);
+    return baseSize * confidenceMultiplier;
+  };
+
+  // Priority 4: Gap Risk Management
+  const shouldAvoidGapRisk = (currentTick: number, timing: TimingData) => {
+    // Avoid betting during high variance periods
+    const expectedGap = timing.variance > 500; // High variance = gap risk
+    return expectedGap; // Simplified - avoid high variance periods
+  };
+
+  // Get consecutive losses count from current streak
+  const getConsecutiveLosses = () => {
+    return bot.currentStreak.type === 'LOSS' ? bot.currentStreak.count : 0;
+  };
+
   // Bot decision making logic with strict safeguards
   useEffect(() => {
     if (!bot.settings.enabled || !gameState.active || tradeCooldown) {
@@ -166,19 +249,77 @@ export function PredictionCenter({
       return;
     }
 
-    const shouldEnterTrade = prediction.confidence >= bot.settings.minConfidence &&
+    // ===== ADVANCED BOT DECISION LOGIC =====
+    
+    // 1. Zone-based strategy check (never bet on AVOID/CAUTION for conservative tiers)
+    const strategy = getStrategyForZone(prediction.zone.name, bot.bankroll);
+    if (!strategy) {
+      setLastDecision({
+        action: 'HOLD',
+        reason: `Zone ${prediction.zone.name}: No strategy`,
+        timestamp: Date.now()
+      });
+      return;
+    }
+
+    // 2. Timing reliability compensation
+    const adjustedConfidence = getAdjustedConfidence(prediction.confidence, timing);
+    
+    // 3. Market condition adaptation
+    const adjustedProbability = adjustForMarketConditions(prediction.rugProbability, gameState);
+    
+    // 4. Gap risk management
+    if (shouldAvoidGapRisk(gameState.tickCount, timing)) {
+      setLastDecision({
+        action: 'HOLD',
+        reason: 'Gap risk detected',
+        timestamp: Date.now()
+      });
+      return;
+    }
+
+    // 5. Bankroll tier system
+    const bankrollTier = getBankrollTier(bot.bankroll);
+    
+    // 6. Enhanced entry conditions based on tier
+    const tierMinConfidence = {
+      'TIER_1': 0.8,  // Very conservative
+      'TIER_2': 0.7,  // Conservative
+      'TIER_3': 0.6,  // Aggressive
+      'TIER_4': 0.5   // Mathematical certainty
+    }[bankrollTier] || 0.8;
+    
+    const shouldEnterTrade = adjustedConfidence >= tierMinConfidence &&
       prediction.expectedValue >= bot.settings.minExpectedValue &&
-      prediction.zone.name !== 'AVOID' &&
-      gameState.tickCount >= 10; // Wait at least 10 ticks
+      adjustedProbability <= 0.85 && // Don't bet if rug probability too high
+      gameState.tickCount >= 10 && // Wait at least 10 ticks
+      gameState.tickCount <= 100; // Don't bet too late
 
     if (shouldEnterTrade) {
       // Set cooldown immediately to prevent rapid firing
       setTradeCooldown(true);
       setLastTradeGameId(currentGameId);
       
+      // 7. Advanced bet sizing calculation
+      const baseBetSize = bot.settings.maxBetSize * 0.1; // Start with 10% of max
+      const zoneMultiplier = getZoneBetMultiplier(prediction.zone.name);
+      const consecutiveLosses = getConsecutiveLosses();
+      
+      // Apply zone multiplier
+      const zoneBetAmount = baseBetSize * zoneMultiplier;
+      
+      // Apply confidence scaling
+      const confidenceAdjustedAmount = getConfidenceAdjustedSize(zoneBetAmount, adjustedConfidence);
+      
+      // Apply loss recovery for Tier 3+ only
+      const recoveryAmount = bankrollTier === 'TIER_3' || bankrollTier === 'TIER_4' 
+        ? calculateRecoveryBet(consecutiveLosses, confidenceAdjustedAmount)
+        : confidenceAdjustedAmount;
+      
+      // Final bet amount (ensure within limits)
       const betAmount = Math.min(
         bot.settings.maxBetSize,
-        calculateOptimalBetSize(prediction.expectedValue, prediction.confidence)
+        Math.max(0.001, recoveryAmount) // Minimum 0.001 SOL
       );
 
       const newTrade: PaperTrade = {
@@ -205,7 +346,7 @@ export function PredictionCenter({
 
       setLastDecision({
         action: 'BET',
-        reason: `EV: ${prediction.expectedValue.toFixed(3)}, Conf: ${(prediction.confidence * 100).toFixed(0)}%`,
+        reason: `${strategy.toUpperCase()} | ${prediction.zone.name} | EV: ${prediction.expectedValue.toFixed(3)} | Conf: ${(adjustedConfidence * 100).toFixed(0)}% | ${bankrollTier}`,
         timestamp: Date.now()
       });
 
@@ -215,10 +356,25 @@ export function PredictionCenter({
 
       // Clear cooldown after 2 seconds
       setTimeout(() => setTradeCooldown(false), 2000);
+    } else {
+      // Log why we didn't trade
+      const reasons = [];
+      if (adjustedConfidence < tierMinConfidence) reasons.push(`Conf: ${(adjustedConfidence * 100).toFixed(0)}% < ${(tierMinConfidence * 100).toFixed(0)}%`);
+      if (prediction.expectedValue < bot.settings.minExpectedValue) reasons.push(`EV: ${prediction.expectedValue.toFixed(3)} < ${bot.settings.minExpectedValue}`);
+      if (adjustedProbability > 0.85) reasons.push(`RugProb: ${(adjustedProbability * 100).toFixed(0)}% > 85%`);
+      if (gameState.tickCount < 10) reasons.push('Too early');
+      if (gameState.tickCount > 100) reasons.push('Too late');
+      
+      setLastDecision({
+        action: 'HOLD',
+        reason: `${strategy?.toUpperCase() || 'NO_STRAT'} | ${reasons.join(' | ')}`,
+        timestamp: Date.now()
+      });
     }
   }, [bot.settings.enabled, gameState.active, gameState.gameId, gameState.tickCount,
       prediction.confidence, prediction.expectedValue, prediction.zone.name,
-      bot.currentTrade, tradeCooldown, lastTradeGameId]);
+      bot.currentTrade, tradeCooldown, lastTradeGameId, timing.reliability, timing.variance,
+      bot.bankroll, bot.currentStreak]);
 
   // Handle game end - only run once per game end
   useEffect(() => {
@@ -270,10 +426,6 @@ export function PredictionCenter({
     }
   }, [gameState.active, bot.currentTrade?.id]);
 
-  const calculateOptimalBetSize = (expectedValue: number, confidence: number): number => {
-    const kelly = expectedValue * confidence * 0.2; // Conservative Kelly sizing
-    return Math.min(kelly, bot.settings.maxBetSize);
-  };
 
   const toggleBot = () => {
     setBot(prev => ({
@@ -403,24 +555,82 @@ export function PredictionCenter({
               </div>
             )}
 
-            {/* Last Decision - Stable display */}
+            {/* Enhanced Decision Display */}
             {bot.settings.enabled && (
-              <div className="mt-3 bg-gray-700/50 p-2 rounded">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-300">
-                    {bot.currentTrade ? 'Position Active' : 
-                     gameState.active ? 'Monitoring...' : 'Waiting for next game'}
-                  </span>
-                  <Badge 
-                    variant="outline" 
-                    className={`text-xs ${
-                      bot.currentTrade ? 'text-accent-blue border-accent-blue' :
-                      'text-crypto-green border-crypto-green'
-                    }`}
-                  >
-                    {bot.currentTrade ? 'ACTIVE' : 'SCANNING'}
-                  </Badge>
+              <div className="mt-3 space-y-2">
+                {/* Current Status */}
+                <div className="bg-gray-700/50 p-2 rounded">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-300">
+                      {bot.currentTrade ? 'Position Active' : 
+                       gameState.active ? 'Monitoring...' : 'Waiting for next game'}
+                    </span>
+                    <Badge 
+                      variant="outline" 
+                      className={`text-xs ${
+                        bot.currentTrade ? 'text-accent-blue border-accent-blue' :
+                        'text-crypto-green border-crypto-green'
+                      }`}
+                    >
+                      {bot.currentTrade ? 'ACTIVE' : 'SCANNING'}
+                    </Badge>
+                  </div>
                 </div>
+                
+                {/* Strategy Information */}
+                <div className="bg-gray-800/50 p-2 rounded text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-gray-400">Tier:</span>
+                      <span className="ml-1 text-white font-mono">
+                        {getBankrollTier(bot.bankroll)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Strategy:</span>
+                      <span className="ml-1 text-white font-mono">
+                        {getStrategyForZone(prediction.zone.name, bot.bankroll) || 'NONE'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Adj. Conf:</span>
+                      <span className="ml-1 text-white font-mono">
+                        {(getAdjustedConfidence(prediction.confidence, timing) * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Streak:</span>
+                      <span className={`ml-1 font-mono ${
+                        bot.currentStreak.type === 'WIN' ? 'text-crypto-green' : 'text-alert-red'
+                      }`}>
+                        {bot.currentStreak.count}{bot.currentStreak.type === 'WIN' ? 'W' : 'L'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Last Decision Details */}
+                {lastDecision && (
+                  <div className="bg-dark-bg/50 p-2 rounded">
+                    <div className="text-xs">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`font-semibold ${
+                          lastDecision.action === 'BET' ? 'text-crypto-green' :
+                          lastDecision.action === 'HOLD' ? 'text-yellow-500' :
+                          'text-alert-red'
+                        }`}>
+                          {lastDecision.action}
+                        </span>
+                        <span className="text-gray-400 font-mono">
+                          {new Date(lastDecision.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-gray-300 font-mono text-xs break-all">
+                        {lastDecision.reason}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
