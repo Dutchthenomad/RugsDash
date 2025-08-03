@@ -1,0 +1,84 @@
+Advanced Prediction System Upgrade Framework
+Priority 1: Volatility Spike Early Warning System
+Your research shows volatility increases 78% in the final 5 ticks before rug. This is pure gold for early exit signals:
+typescriptclass VolatilitySpikePredictionEngine {
+  private volatilityHistory: number[] = [];
+  private readonly NORMAL_VOLATILITY = 0.147;
+  private readonly DANGER_VOLATILITY = 0.262;
+  
+  updateVolatility(currentPrice: number, previousPrices: number[]) {
+    const volatility = this.calculateVolatility(previousPrices);
+    this.volatilityHistory.push(volatility);
+    
+    // Keep rolling window of last 10 measurements
+    if (this.volatilityHistory.length > 10) {
+      this.volatilityHistory.shift();
+    }
+    
+    return this.detectVolatilitySpike();
+  }
+  
+  detectVolatilitySpike(): VolatilitySignal {
+    const currentVol = this.volatilityHistory[this.volatilityHistory.length - 1];
+    const avgVol = this.volatilityHistory.reduce((a, b) => a + b, 0) / this.volatilityHistory.length;
+    
+    const spikeRatio = currentVol / this.NORMAL_VOLATILITY;
+    const trendRatio = currentVol / avgVol;
+    
+    if (spikeRatio > 1.5 && trendRatio > 1.3) {
+      return {
+        signal: 'IMMINENT_RUG_WARNING',
+        confidence: Math.min(0.95, spikeRatio / 1.78), // Based on your 78% research
+        recommendedAction: 'IMMEDIATE_EXIT',
+        timeWindow: '1-5_ticks'
+      };
+    }
+    
+    return { signal: 'NORMAL', confidence: 0.5 };
+  }
+}
+Priority 2: Meta-Algorithm Treasury Predictor
+Your docs show 84% correlation between high payouts and subsequent instarhug. This is massive edge:
+typescriptclass TreasuryStatePredictor {
+  private gameHistory: GameResult[] = [];
+  private readonly HIGH_PAYOUT_THRESHOLD = 50; // >50x multiplier
+  
+  updateGameHistory(gameResult: GameResult) {
+    this.gameHistory.push(gameResult);
+    
+    // Keep rolling 100-game window (per your meta-algorithm research)
+    if (this.gameHistory.length > 100) {
+      this.gameHistory.shift();
+    }
+  }
+  
+  predictNextGameRisk(): TreasuryPrediction {
+    const recentGames = this.gameHistory.slice(-10);
+    const highPayoutGames = recentGames.filter(g => g.peakMultiplier > this.HIGH_PAYOUT_THRESHOLD);
+    
+    if (highPayoutGames.length > 0) {
+      const lastHighPayout = highPayoutGames[highPayoutGames.length - 1];
+      const gamesSinceHighPayout = recentGames.length - recentGames.indexOf(lastHighPayout) - 1;
+      
+      // Your research: 84% chance of instarhug after high payout
+      if (gamesSinceHighPayout === 0) {
+        return {
+          riskLevel: 'EXTREMELY_HIGH',
+          instarhugProbability: 0.84,
+          recommendation: 'AVOID_EARLY_GAME',
+          reason: 'Treasury protection mode likely active'
+        };
+      }
+    }
+    
+    // Analyze treasury state indicators
+    const shortGameRatio = recentGames.filter(g => g.duration < 30).length / recentGames.length;
+    const treasuryStress = shortGameRatio > 0.6 ? 0.3 : 0.1;
+    
+    return {
+      riskLevel: treasuryStress > 0.25 ? 'HIGH' : 'NORMAL',
+      instarhugProbability: treasuryStress,
+      recommendation: treasuryStress > 0.25 ? 'LATE_ENTRY_ONLY' : 'NORMAL_OPERATION'
+    };
+  }
+}

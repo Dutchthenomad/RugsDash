@@ -186,3 +186,34 @@ export interface TrackingData {
   outcomes: OutcomeRecord[];
   metrics: PredictionMetrics;
 }
+
+// === ADVANCED PREDICTION SYSTEMS ===
+
+export interface VolatilitySignal {
+  signal: 'IMMINENT_RUG_WARNING' | 'DANGER_ZONE' | 'CAUTION' | 'NORMAL';
+  confidence: number;
+  recommendedAction?: 'IMMEDIATE_EXIT' | 'CAUTION' | 'MONITOR';
+  timeWindow?: string;
+}
+
+export interface TreasuryPrediction {
+  riskLevel: 'EXTREMELY_HIGH' | 'HIGH' | 'MODERATE' | 'NORMAL';
+  instarhugProbability: number;
+  recommendation: 'AVOID_EARLY_GAME' | 'LATE_ENTRY_ONLY' | 'NORMAL_OPERATION';
+  reason?: string;
+}
+
+export interface GameResult {
+  id: string;
+  duration: number;
+  peakMultiplier: number;
+  endTick: number;
+  timestamp: number;
+}
+
+export interface AdvancedPredictionState {
+  volatilityHistory: number[];
+  gameHistory: GameResult[];
+  currentVolatilitySignal: VolatilitySignal;
+  currentTreasuryPrediction: TreasuryPrediction;
+}

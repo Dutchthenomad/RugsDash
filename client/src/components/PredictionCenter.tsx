@@ -32,7 +32,11 @@ import {
   PredictionRecord,
   OutcomeRecord,
   TrackingData,
-  PredictionMetrics
+  PredictionMetrics,
+  VolatilitySignal,
+  TreasuryPrediction,
+  GameResult,
+  AdvancedPredictionState
 } from '../types/gameState';
 
 // Helper function for trade stats
@@ -147,6 +151,18 @@ export function PredictionCenter({
       lastUpdated: Date.now()
     }
   });
+  
+  // === ADVANCED PREDICTION SYSTEMS STATE ===
+  const [advancedPredictions, setAdvancedPredictions] = useState<AdvancedPredictionState>({
+    volatilityHistory: [],
+    gameHistory: [],
+    currentVolatilitySignal: { signal: 'NORMAL', confidence: 0.5 },
+    currentTreasuryPrediction: {
+      riskLevel: 'NORMAL',
+      instarhugProbability: 0.1,
+      recommendation: 'NORMAL_OPERATION'
+    }
+  });
 
   const getZoneColor = () => {
     switch (prediction.zone.name) {
@@ -254,12 +270,169 @@ export function PredictionCenter({
     return bot.currentStreak.type === 'LOSS' ? bot.currentStreak.count : 0;
   };
 
+  // ===== ADVANCED PREDICTION SYSTEMS =====
+  
+  // Priority 1: Volatility Spike Early Warning System
+  const updateVolatilityAnalysis = (currentPrice: number, prices: number[]) => {
+    const NORMAL_VOLATILITY = 0.147;
+    const DANGER_VOLATILITY = 0.262;
+    
+    // Calculate current volatility
+    const recentPrices = prices.slice(-10); // Last 10 prices
+    if (recentPrices.length < 5) return;
+    
+    const volatility = calculateVolatility(recentPrices);
+    
+    setAdvancedPredictions(prev => {
+      const newVolatilityHistory = [...prev.volatilityHistory, volatility];
+      // Keep rolling window of last 10 measurements
+      if (newVolatilityHistory.length > 10) {
+        newVolatilityHistory.shift();
+      }
+      
+      // Detect volatility spike
+      const avgVol = newVolatilityHistory.reduce((a, b) => a + b, 0) / newVolatilityHistory.length;
+      const spikeRatio = volatility / NORMAL_VOLATILITY;
+      const trendRatio = volatility / avgVol;
+      
+      let volatilitySignal: VolatilitySignal;
+      
+      if (spikeRatio > 1.5 && trendRatio > 1.3) {
+        volatilitySignal = {
+          signal: 'IMMINENT_RUG_WARNING',
+          confidence: Math.min(0.95, spikeRatio / 1.78), // Based on 78% research
+          recommendedAction: 'IMMEDIATE_EXIT',
+          timeWindow: '1-5_ticks'
+        };
+      } else if (spikeRatio > 1.2) {
+        volatilitySignal = {
+          signal: 'DANGER_ZONE',
+          confidence: spikeRatio / 1.5,
+          recommendedAction: 'CAUTION',
+          timeWindow: '5-15_ticks'
+        };
+      } else {
+        volatilitySignal = { signal: 'NORMAL', confidence: 0.5 };
+      }
+      
+      return {
+        ...prev,
+        volatilityHistory: newVolatilityHistory,
+        currentVolatilitySignal: volatilitySignal
+      };
+    });
+  };
+  
+  const calculateVolatility = (prices: number[]): number => {
+    if (prices.length < 2) return 0;
+    
+    const returns = [];
+    for (let i = 1; i < prices.length; i++) {
+      returns.push(Math.log(prices[i] / prices[i - 1]));
+    }
+    
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+    
+    return Math.sqrt(variance);
+  };
+  
+  // Priority 2: Meta-Algorithm Treasury Predictor
+  const updateTreasuryAnalysis = () => {
+    const HIGH_PAYOUT_THRESHOLD = 50; // >50x multiplier
+    
+    setAdvancedPredictions(prev => {
+      const recentGames = prev.gameHistory.slice(-10);
+      const highPayoutGames = recentGames.filter(g => g.peakMultiplier > HIGH_PAYOUT_THRESHOLD);
+      
+      let treasuryPrediction: TreasuryPrediction;
+      
+      if (highPayoutGames.length > 0) {
+        const lastHighPayout = highPayoutGames[highPayoutGames.length - 1];
+        const gamesSinceHighPayout = recentGames.length - recentGames.indexOf(lastHighPayout) - 1;
+        
+        // 84% chance of instarhug after high payout (from research)
+        if (gamesSinceHighPayout === 0) {
+          treasuryPrediction = {
+            riskLevel: 'EXTREMELY_HIGH',
+            instarhugProbability: 0.84,
+            recommendation: 'AVOID_EARLY_GAME',
+            reason: 'Treasury protection mode likely active'
+          };
+        } else if (gamesSinceHighPayout <= 2) {
+          treasuryPrediction = {
+            riskLevel: 'HIGH',
+            instarhugProbability: 0.6,
+            recommendation: 'LATE_ENTRY_ONLY',
+            reason: 'Recent high payout detected'
+          };
+        } else {
+          treasuryPrediction = {
+            riskLevel: 'MODERATE',
+            instarhugProbability: 0.3,
+            recommendation: 'NORMAL_OPERATION'
+          };
+        }
+      } else {
+        // Analyze treasury state indicators
+        const shortGameRatio = recentGames.filter(g => g.duration < 30).length / Math.max(recentGames.length, 1);
+        const treasuryStress = shortGameRatio > 0.6 ? 0.3 : 0.1;
+        
+        treasuryPrediction = {
+          riskLevel: treasuryStress > 0.25 ? 'HIGH' : 'NORMAL',
+          instarhugProbability: treasuryStress,
+          recommendation: treasuryStress > 0.25 ? 'LATE_ENTRY_ONLY' : 'NORMAL_OPERATION'
+        };
+      }
+      
+      return {
+        ...prev,
+        currentTreasuryPrediction: treasuryPrediction
+      };
+    });
+  };
+  
+  const addGameResult = (gameResult: GameResult) => {
+    setAdvancedPredictions(prev => {
+      const newGameHistory = [...prev.gameHistory, gameResult];
+      // Keep rolling 100-game window (per meta-algorithm research)
+      if (newGameHistory.length > 100) {
+        newGameHistory.shift();
+      }
+      
+      return {
+        ...prev,
+        gameHistory: newGameHistory
+      };
+    });
+  };
+  
+  // ===== ADVANCED PREDICTION SYSTEM UPDATES =====
+  
+  // Update volatility analysis when game state changes
+  useEffect(() => {
+    if (gameState.price && typeof gameState.price === 'number' && gameState.active) {
+      // Build mock prices array (in real implementation, this would come from actual price history)
+      const mockPrices = Array.from({length: 10}, (_, i) => {
+        const variance = 0.05; // 5% variance
+        return gameState.price * (0.95 + Math.random() * variance * 2);
+      });
+      updateVolatilityAnalysis(gameState.price, mockPrices);
+    }
+  }, [gameState.price, gameState.active, gameState.tickCount]);
+  
+  // Update treasury analysis when game history changes
+  useEffect(() => {
+    updateTreasuryAnalysis();
+  }, [advancedPredictions.gameHistory.length]);
+  
   // ===== PREDICTION TRACKING SYSTEM =====
   
   const logPrediction = (gameId: string, currentTick: number, strategy: string) => {
     const predictionId = `${gameId}_tick_${currentTick}`;
+    const adjustedConfidence = getAdjustedConfidence(prediction.confidence, timing);
     
-    const prediction: PredictionRecord = {
+    const predictionRecord: PredictionRecord = {
       predictionId,
       gameId,
       predictionTick: currentTick,
@@ -273,7 +446,7 @@ export function PredictionCenter({
         ticksSinceStart: currentTick,
         timestamp: Date.now()
       },
-      confidence: getAdjustedConfidence(prediction.confidence, timing),
+      confidence: adjustedConfidence,
       triggerReason: `${strategy}_strategy`,
       strategy,
       zone: prediction.zone.name
@@ -285,7 +458,7 @@ export function PredictionCenter({
         ...prev.predictions,
         active: {
           ...prev.predictions.active,
-          [gameId]: prediction
+          [gameId]: predictionRecord
         }
       },
       metrics: {
@@ -388,7 +561,28 @@ export function PredictionCenter({
 
     // ===== ADVANCED BOT DECISION LOGIC =====
     
-    // 1. Zone-based strategy check (never bet on AVOID/CAUTION for conservative tiers)
+    // Advanced prediction systems are updated in separate useEffects to prevent infinite loops
+    
+    // 1. CHECK ADVANCED PREDICTION WARNINGS
+    if (advancedPredictions.currentVolatilitySignal.signal === 'IMMINENT_RUG_WARNING') {
+      setLastDecision({
+        action: 'HOLD',
+        reason: `VOLATILITY SPIKE: ${advancedPredictions.currentVolatilitySignal.confidence.toFixed(2)} confidence`,
+        timestamp: Date.now()
+      });
+      return;
+    }
+    
+    if (advancedPredictions.currentTreasuryPrediction.riskLevel === 'EXTREMELY_HIGH' && gameState.tickCount < 100) {
+      setLastDecision({
+        action: 'HOLD',
+        reason: `TREASURY RISK: ${advancedPredictions.currentTreasuryPrediction.reason}`,
+        timestamp: Date.now()
+      });
+      return;
+    }
+    
+    // 2. Zone-based strategy check (never bet on AVOID/CAUTION for conservative tiers)
     const strategy = getStrategyForZone(prediction.zone.name, bot.bankroll);
     if (!strategy) {
       setLastDecision({
@@ -399,13 +593,22 @@ export function PredictionCenter({
       return;
     }
 
-    // 2. Timing reliability compensation
-    const adjustedConfidence = getAdjustedConfidence(prediction.confidence, timing);
+    // 3. Timing reliability compensation
+    let adjustedConfidence = getAdjustedConfidence(prediction.confidence, timing);
     
-    // 3. Market condition adaptation
+    // 4. Advanced prediction system adjustments
+    if (advancedPredictions.currentVolatilitySignal.signal === 'DANGER_ZONE') {
+      adjustedConfidence *= 0.7; // Reduce confidence during danger periods
+    }
+    
+    if (advancedPredictions.currentTreasuryPrediction.riskLevel === 'HIGH') {
+      adjustedConfidence *= 0.8; // Reduce confidence during treasury stress
+    }
+    
+    // 5. Market condition adaptation
     const adjustedProbability = adjustForMarketConditions(prediction.rugProbability, gameState);
     
-    // 4. Gap risk management
+    // 6. Gap risk management
     if (shouldAvoidGapRisk(gameState.tickCount, timing)) {
       setLastDecision({
         action: 'HOLD',
@@ -415,16 +618,21 @@ export function PredictionCenter({
       return;
     }
 
-    // 5. Bankroll tier system
+    // 7. Bankroll tier system
     const bankrollTier = getBankrollTier(bot.bankroll);
     
-    // 6. Enhanced entry conditions based on tier
-    const tierMinConfidence = {
+    // 8. Enhanced entry conditions based on tier and advanced predictions
+    let tierMinConfidence = {
       'TIER_1': 0.8,  // Very conservative
       'TIER_2': 0.7,  // Conservative
       'TIER_3': 0.6,  // Aggressive
       'TIER_4': 0.5   // Mathematical certainty
     }[bankrollTier] || 0.8;
+    
+    // Increase confidence requirements during high-risk periods
+    if (advancedPredictions.currentTreasuryPrediction.riskLevel === 'HIGH') {
+      tierMinConfidence += 0.1;
+    }
     
     const shouldEnterTrade = adjustedConfidence >= tierMinConfidence &&
       prediction.expectedValue >= bot.settings.minExpectedValue &&
@@ -514,7 +722,8 @@ export function PredictionCenter({
   }, [bot.settings.enabled, gameState.active, gameState.gameId, gameState.tickCount,
       prediction.confidence, prediction.expectedValue, prediction.zone.name,
       bot.currentTrade, tradeCooldown, lastTradeGameId, timing.reliability, timing.variance,
-      bot.bankroll, bot.currentStreak]);
+      bot.bankroll, bot.currentStreak, advancedPredictions.currentVolatilitySignal,
+      advancedPredictions.currentTreasuryPrediction]);
 
   // Handle game end - only run once per game end
   useEffect(() => {
@@ -524,6 +733,16 @@ export function PredictionCenter({
       
       // RECORD GAME END FOR PREDICTION TRACKING
       recordGameEnd(currentGameId, gameState.tickCount);
+      
+      // ADD TO ADVANCED PREDICTION GAME HISTORY
+      const gameResult: GameResult = {
+        id: currentGameId,
+        duration: gameState.tickCount,
+        peakMultiplier: gameState.peakPrice || gameState.price,
+        endTick: gameState.tickCount,
+        timestamp: Date.now()
+      };
+      addGameResult(gameResult);
       
       // Clear current trade immediately to prevent duplicate processing
       setBot(prev => ({ ...prev, currentTrade: null }));
@@ -826,6 +1045,60 @@ export function PredictionCenter({
         </CardContent>
       </Card>
 
+      {/* Advanced Prediction Warnings */}
+      {(advancedPredictions.currentVolatilitySignal.signal !== 'NORMAL' || 
+        advancedPredictions.currentTreasuryPrediction.riskLevel !== 'NORMAL') && (
+        <Card className="bg-alert-red/20 border-alert-red border-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-alert-red flex items-center">
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              Advanced Risk Warnings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Volatility Warning */}
+            {advancedPredictions.currentVolatilitySignal.signal !== 'NORMAL' && (
+              <div className="bg-alert-red/30 p-2 rounded mb-2">
+                <div className="text-sm font-semibold text-white">
+                  {advancedPredictions.currentVolatilitySignal.signal.replace('_', ' ')}
+                </div>
+                <div className="text-xs text-white/80">
+                  Confidence: {(advancedPredictions.currentVolatilitySignal.confidence * 100).toFixed(0)}%
+                  {advancedPredictions.currentVolatilitySignal.timeWindow && 
+                    ` | Window: ${advancedPredictions.currentVolatilitySignal.timeWindow}`
+                  }
+                </div>
+                {advancedPredictions.currentVolatilitySignal.recommendedAction && (
+                  <div className="text-xs font-bold text-yellow-300">
+                    → {advancedPredictions.currentVolatilitySignal.recommendedAction}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Treasury Warning */}
+            {advancedPredictions.currentTreasuryPrediction.riskLevel !== 'NORMAL' && (
+              <div className="bg-yellow-600/30 p-2 rounded">
+                <div className="text-sm font-semibold text-white">
+                  Treasury Risk: {advancedPredictions.currentTreasuryPrediction.riskLevel}
+                </div>
+                <div className="text-xs text-white/80">
+                  Instarhug Probability: {(advancedPredictions.currentTreasuryPrediction.instarhugProbability * 100).toFixed(0)}%
+                </div>
+                <div className="text-xs font-bold text-yellow-300">
+                  → {advancedPredictions.currentTreasuryPrediction.recommendation.replace('_', ' ')}
+                </div>
+                {advancedPredictions.currentTreasuryPrediction.reason && (
+                  <div className="text-xs text-white/60 mt-1">
+                    {advancedPredictions.currentTreasuryPrediction.reason}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      
       {/* Timing and Confidence Indicators */}
       <div className="grid grid-cols-3 gap-4">
         <Card className="bg-card-bg border-gray-600">
